@@ -82,6 +82,8 @@ type staticPolicy struct {
 	standbyPods map[string][]string
 	contPod	 map[string]string
 	firstPod	map[string]string
+	// set of CPUs to reuse across allocations in a pod
+	cpusToReuse map[string]cpuset.CPUSet
 }
 
 // Ensure staticPolicy implements Policy interface
@@ -124,6 +126,7 @@ func NewStaticPolicy(topology *topology.CPUTopology, numReservedCPUs int, reserv
 		standbyPods: make(map[string][]string),
 		contPod:	 make(map[string]string),
 		firstPod:	make(map[string]string),
+		cpusToReuse: make(map[string]cpuset.CPUSet),
 	}, nil
 }
 
@@ -212,6 +215,31 @@ func AppendIfMissing(slice []string, i string) []string {
 }
 
 
+func (p *staticPolicy) updateCPUsToReuse(pod *v1.Pod, container *v1.Container, cset cpuset.CPUSet) {
+	// If pod entries to m.cpusToReuse other than the current pod exist, delete them.
+	for podUID := range p.cpusToReuse {
+		if podUID != string(pod.UID) {
+			delete(p.cpusToReuse, podUID)
+		}
+	}
+	// If no cpuset exists for cpusToReuse by this pod yet, create one.
+	if _, ok := p.cpusToReuse[string(pod.UID)]; !ok {
+		p.cpusToReuse[string(pod.UID)] = cpuset.NewCPUSet()
+	}
+	// Check if the container is an init container.
+	// If so, add its cpuset to the cpuset of reusable CPUs for any new allocations.
+	for _, initContainer := range pod.Spec.InitContainers {
+		if container.Name == initContainer.Name {
+			klog.Infof("[cpumanager] updateCPUsToReuse %s", initContainer.Name)
+			p.cpusToReuse[string(pod.UID)] = p.cpusToReuse[string(pod.UID)].Union(cset)
+			return
+		}
+	}
+	// Otherwise it is an app container.
+	// Remove its cpuset from the cpuset of reusable CPUs for any new allocations.
+	p.cpusToReuse[string(pod.UID)] = p.cpusToReuse[string(pod.UID)].Difference(cset)
+}
+
 func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Container) error {
 	if numCPUs := p.guaranteedCPUs(pod, container); numCPUs != 0 {
 		klog.Infof("[cpumanager] static policy: Allocate (pod: %s, container: %s)", pod.Name, container.Name)
@@ -248,7 +276,8 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 			p.activePod[pod.GenerateName] = containerID
 		}
 
-		if _, ok := s.GetCPUSet(string(pod.UID), container.Name); ok {
+		if cpuset, ok := s.GetCPUSet(string(pod.UID), container.Name); ok {
+			p.updateCPUsToReuse(pod, container, cpuset)
 			klog.Infof("[cpumanager] static policy: container already present in state, skipping (pod: %s, container: %s)", pod.Name, container.Name)
 			return nil
 		}
@@ -263,26 +292,17 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 		var cpuset cpuset.CPUSet
 		var err error
 		if pod.ObjectMeta.Labels["mec"] == "lowlatency" {
-			cpuset, err = p.allocateCPUs(s, numCPUs, hint.NUMANodeAffinity, true)
+			cpuset, err = p.allocateCPUs(s, numCPUs, hint.NUMANodeAffinity, p.cpusToReuse[string(pod.UID)], true)
 		} else {
-			cpuset, err = p.allocateCPUs(s, numCPUs, hint.NUMANodeAffinity, false)
+			cpuset, err = p.allocateCPUs(s, numCPUs, hint.NUMANodeAffinity, p.cpusToReuse[string(pod.UID)], false)
 		}
 		if err != nil {
 			klog.Errorf("[cpumanager] unable to allocate %d CPUs (pod: %s, container: %s, error: %v)", numCPUs, pod.Name, container.Name, err)
 			return err
 		}
 		s.SetCPUSet(string(pod.UID), container.Name, cpuset)
+		p.updateCPUsToReuse(pod, container, cpuset)
 
-		// Check if the container that has just been allocated resources is an init container.
-		// If so, release its CPUs back into the shared pool so they can be reallocated.
-		for _, initContainer := range pod.Spec.InitContainers {
-			if container.Name == initContainer.Name {
-				if toRelease, ok := s.GetCPUSet(string(pod.UID), container.Name); ok {
-					// Mutate the shared pool, adding released cpus.
-					s.SetDefaultCPUSet(s.GetDefaultCPUSet().Union(toRelease))
-				}
-			}
-		}
 	}
 	// container belongs in the shared pool (nothing to do; use default cpuset)
 	return nil
@@ -333,8 +353,10 @@ func (p *staticPolicy) RemoveContainer(s state.State, podUID string, containerNa
 	return nil
 }
 
-func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bitmask.BitMask, isLowLatencyCont bool) (cpuset.CPUSet, error) {
+func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bitmask.BitMask, reusableCPUs cpuset.CPUSet, isLowLatencyCont bool) (cpuset.CPUSet, error) {
 	klog.Infof("[cpumanager] allocateCpus: (numCPUs: %d, socket: %v)", numCPUs, numaAffinity)
+
+	assignableCPUs := p.assignableCPUs(s).Union(reusableCPUs)
 
 	// If there are aligned CPUs in numaAffinity, attempt to take those first.
 	result := cpuset.NewCPUSet()
@@ -358,7 +380,7 @@ func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bit
 	if numaAffinity != nil {
 		alignedCPUs := cpuset.NewCPUSet()
 		for _, numaNodeID := range numaAffinity.GetBits() {
-			alignedCPUs = alignedCPUs.Union(p.assignableCPUs(s).Intersection(p.topology.CPUDetails.CPUsInNUMANodes(numaNodeID)).Difference(result))
+			alignedCPUs = alignedCPUs.Union(assignableCPUs.Intersection(p.topology.CPUDetails.CPUsInNUMANodes(numaNodeID)).Difference(result))
 		}
 
 		numAlignedToAlloc := alignedCPUs.Size()
@@ -375,7 +397,7 @@ func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bit
 	}
 
 	// Get any remaining CPUs from what's leftover after attempting to grab aligned ones.
-	remainingCPUs, err := takeByTopology(p.topology, p.assignableCPUs(s).Difference(result), numCPUs-result.Size())
+	remainingCPUs, err := takeByTopology(p.topology, assignableCPUs.Difference(result), numCPUs-result.Size())
 	if err != nil {
 		return cpuset.NewCPUSet(), err
 	}
