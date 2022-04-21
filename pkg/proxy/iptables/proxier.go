@@ -950,6 +950,14 @@ func (proxier *Proxier) syncProxyRules() {
 		proxier.endpointChainsNumber += len(proxier.endpointsMap[svcName])
 	}
 
+	var agentMap map[string]bool
+	agentMap = make(map[string]bool)
+
+	for svcName, _ := range proxier.serviceMap {
+		if svcName.Port == "agent" {
+			agentMap[svcName.NamespacedName.String()] = true
+		}
+	}
 	// Build rules for each service.
 	for svcName, svc := range proxier.serviceMap {
 		svcInfo, ok := svc.(*serviceInfo)
@@ -1342,10 +1350,17 @@ func (proxier *Proxier) syncProxyRules() {
 			args = proxier.appendServiceCommentLocked(args, svcNameString)
 			if i < (n - 1) {
 				// Each rule is a probabilistic match.
-				args = append(args,
-					"-m", "statistic",
-					"--mode", "random",
-					"--probability", proxier.probability(n-i))
+				if agentMap[svcName.NamespacedName.String()] {
+					args = append(args,
+						"-m", "statistic",
+						"--mode", "random",
+						"--probability", "1.0")
+				} else {
+					args = append(args,
+						"-m", "statistic",
+						"--mode", "random",
+						"--probability", proxier.probability(n - i))
+				}
 			}
 			// The final (or only if n == 1) rule is a guaranteed match.
 			args = append(args, "-j", string(endpointChain))
