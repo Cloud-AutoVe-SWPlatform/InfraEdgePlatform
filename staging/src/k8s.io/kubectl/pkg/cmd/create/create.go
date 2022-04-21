@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"runtime"
 	"strings"
+	"encoding/json"
 
 	"github.com/spf13/cobra"
 	"k8s.io/klog"
@@ -220,6 +221,93 @@ func (o *CreateOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) error {
 	return nil
 }
 
+func parse(object kruntime.Object, arr []string) map[string]interface{} {
+	data, err := json.Marshal(object)
+	if err != nil {
+		return nil
+	}
+	var dat map[string]interface{}
+
+	json.Unmarshal(data, &dat)
+	for _, value := range arr {
+		if dat[value] == nil {
+			return nil
+		}
+		dat = dat[value].(map[string]interface{})
+	}
+	return dat
+}
+
+
+func InsertMonitor(object kruntime.Object, agent string) kruntime.Object {
+	data, err := json.Marshal(object)
+	if err != nil {
+		return nil
+	}
+	var dat map[string]interface{}
+
+	json.Unmarshal(data, &dat)
+
+	var port map[string]interface{}
+	port = make(map[string]interface{})
+	port["containerPort"] = 10080.0
+	port["name"] = "agent"
+
+	spec := dat["spec"].(map[string]interface{})
+	template := spec["template"].(map[string]interface{})
+	spec2 := template["spec"].(map[string]interface{})
+	containers := spec2["containers"].([]interface{})
+
+	for idx, _ := range containers {
+		container := containers[idx].(map[string]interface{})
+		if container["name"] == agent {
+			ports := container["ports"].([]interface{})
+			ports = append(ports, port)
+			container["ports"] = ports
+			containers[idx] = container
+			break
+		}
+	}
+	
+	spec2["containers"] = containers
+	template["spec"] = spec2
+	spec["template"] = template
+	dat["spec"] = spec
+	fmt.Printf("%s\n\n\n%s\n", dat, containers)
+	
+	data, err = json.Marshal(dat)
+	json.Unmarshal(data, &object)
+	return object
+}
+
+func InsertMonitorService(object kruntime.Object) kruntime.Object {
+	data, err := json.Marshal(object)
+	if err != nil {
+		return nil
+	}
+	var dat map[string]interface{}
+
+	json.Unmarshal(data, &dat)
+
+	var port map[string]interface{}
+	port = make(map[string]interface{})
+	port["port"] = 10080.0
+	port["name"] = "agent"
+//	port["protocol"] = "TCP"
+
+	spec := dat["spec"].(map[string]interface{})
+	ports := spec["ports"].([]interface{})
+	ports = append(ports, port)
+
+	spec["ports"] = ports
+	dat["spec"] = spec
+	
+	data, err = json.Marshal(dat)
+	json.Unmarshal(data, &object)
+	return object
+}
+
+
 // RunCreate performs the creation
 func (o *CreateOptions) RunCreate(f cmdutil.Factory, cmd *cobra.Command) error {
 	// raw only makes sense for a single file resource multiple objects aren't likely to do what you want.
@@ -264,6 +352,28 @@ func (o *CreateOptions) RunCreate(f cmdutil.Factory, cmd *cobra.Command) error {
 		if err != nil {
 			return err
 		}
+
+		if parse(info.Object, []string{})["kind"] == "Service" {
+			arr := []string {"metadata","labels"}
+			agent := parse(info.Object, arr)["agent"]
+			if agent != nil {
+				fmt.Printf("active standby mode \n");
+				fmt.Printf("%s\n\n", info.Object)
+				info.Object = InsertMonitorService(info.Object)
+				fmt.Printf("\n\n%s\n\n", info.Object)
+			}
+		} else {
+
+			arr := []string {"spec" , "template", "metadata","labels"}
+			agent := parse(info.Object, arr)["agent"]
+			if agent != nil {
+				fmt.Printf("active standby mode \n");
+				fmt.Printf("%s\n\n", info.Object)
+				info.Object = InsertMonitor(info.Object, agent.(string))
+				fmt.Printf("\n\n%s\n\n", info.Object)
+			}
+		}
+
 		if err := util.CreateOrUpdateAnnotation(cmdutil.GetFlagBool(cmd, cmdutil.ApplyAnnotationsFlag), info.Object, scheme.DefaultJSONEncoder()); err != nil {
 			return cmdutil.AddSourceToErr("creating", info.Source, err)
 		}
