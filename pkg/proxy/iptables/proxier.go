@@ -567,6 +567,8 @@ func (proxier *Proxier) OnEndpointsAdd(endpoints *v1.Endpoints) {
 // endpoints object is observed.
 func (proxier *Proxier) OnEndpointsUpdate(oldEndpoints, endpoints *v1.Endpoints) {
 	if proxier.endpointsChanges.Update(oldEndpoints, endpoints) && proxier.isInitialized() {
+
+		time.Sleep(5 * time.Second)
 		proxier.Sync()
 	}
 }

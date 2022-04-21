@@ -134,7 +134,7 @@ const (
 	ContainerLogsDir = "/var/log/containers"
 
 	// MaxContainerBackOff is the max backoff period, exported for the e2e test
-	MaxContainerBackOff = 300 * time.Second
+	MaxContainerBackOff = 32 * time.Second
 
 	// Capacity of the channel for storing pods to kill. A small number should
 	// suffice because a goroutine is dedicated to check the channel and does
@@ -168,7 +168,7 @@ const (
 	// backOffPeriod is the period to back off when pod syncing results in an
 	// error. It is also used as the base period for the exponential backoff
 	// container restarts and image pulls.
-	backOffPeriod = time.Second * 10
+	backOffPeriod = time.Second * 8
 
 	// ContainerGCPeriod is the period for performing container garbage collection.
 	ContainerGCPeriod = time.Minute
