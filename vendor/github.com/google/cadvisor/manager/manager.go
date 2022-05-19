@@ -949,6 +949,26 @@ func (m *manager) createContainerLocked(containerName string, watchSource watche
 
 	klog.V(3).Infof("Added container: %q (aliases: %v, namespace: %q)", containerName, cont.info.Aliases, cont.info.Namespace)
 
+	if len(cont.info.Aliases) > 0 {
+		if len(containerName) > 0 {
+			if labels != nil {
+				fmt.Printf("[mec] %s\n", labels["annotation.io.kubernetes.container.ports"])
+				fmt.Printf("[!mec] %h %h\n", labels, cont)
+				var dat []map[string]string
+				json.Unmarshal([]byte(labels["annotation.io.kubernetes.container.ports"]), &dat)
+
+				for _, ports := range dat {
+					if ports["name"] == "agent" {
+						var d1 = []byte(containerName + "\n" + cont.info.Aliases[0])
+						ioutil.WriteFile("/tmp/dat1", d1, 0644)
+						time.Sleep(time.Second)
+					}
+				}
+			}
+		}
+	}
+
+
 	contSpec, err := cont.handler.GetSpec()
 	if err != nil {
 		return err
