@@ -567,7 +567,8 @@ func (proxier *Proxier) OnEndpointsAdd(endpoints *v1.Endpoints) {
 // endpoints object is observed.
 func (proxier *Proxier) OnEndpointsUpdate(oldEndpoints, endpoints *v1.Endpoints) {
 	if proxier.endpointsChanges.Update(oldEndpoints, endpoints) && proxier.isInitialized() {
-
+		// 너무 빠른 동기화로 인해 서비스가 초기화 되기전에 패킷이 갈 수 있음
+		// 이를 방지하기 위한 딜레이. 5초로 되어있으나 더 늘어날 수 있음
 		time.Sleep(5 * time.Second)
 		proxier.Sync()
 	}
@@ -949,7 +950,8 @@ func (proxier *Proxier) syncProxyRules() {
 	for svcName := range proxier.serviceMap {
 		proxier.endpointChainsNumber += len(proxier.endpointsMap[svcName])
 	}
-
+	
+	// active/standby 모델 적용을 위해 agent service 들을 별도로 관리
 	var agentMap map[string]bool
 	agentMap = make(map[string]bool)
 
@@ -1350,6 +1352,7 @@ func (proxier *Proxier) syncProxyRules() {
 			args = proxier.appendServiceCommentLocked(args, svcNameString)
 			if i < (n - 1) {
 				// Each rule is a probabilistic match.
+				// agent service인 경우 active / standby 모델을 적용하여 패킷 전달 확률을 1로 세팅
 				if agentMap[svcName.NamespacedName.String()] {
 					args = append(args,
 						"-m", "statistic",

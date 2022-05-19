@@ -221,6 +221,7 @@ func (o *CreateOptions) Complete(f cmdutil.Factory, cmd *cobra.Command) error {
 	return nil
 }
 
+// yaml 구조체 탐색 함수
 func parse(object kruntime.Object, arr []string) map[string]interface{} {
 	data, err := json.Marshal(object)
 	if err != nil {
@@ -238,7 +239,8 @@ func parse(object kruntime.Object, arr []string) map[string]interface{} {
 	return dat
 }
 
-
+// pod yaml에서 agent를 삽입할 container에 container port를 추가하는 함수
+// 현재는 포트 번호가 10080으로 fix 되어 있으나 이는 추후에 랜덤화나 유저의 설정등으로 대체될 수 있음
 func InsertMonitor(object kruntime.Object, agent string) kruntime.Object {
 	data, err := json.Marshal(object)
 	if err != nil {
@@ -280,6 +282,8 @@ func InsertMonitor(object kruntime.Object, agent string) kruntime.Object {
 	return object
 }
 
+
+// 서비스 등록 yaml에서 agent 컨테이너에 대한 port를 추가하는 함수
 func InsertMonitorService(object kruntime.Object) kruntime.Object {
 	data, err := json.Marshal(object)
 	if err != nil {
@@ -353,24 +357,26 @@ func (o *CreateOptions) RunCreate(f cmdutil.Factory, cmd *cobra.Command) error {
 			return err
 		}
 
+		// yaml에 담긴 정보가 service인 경우 service에 port등록
+		// 그외에 agent 정보가 담기면 container port 등록
 		if parse(info.Object, []string{})["kind"] == "Service" {
 			arr := []string {"metadata","labels"}
 			agent := parse(info.Object, arr)["agent"]
 			if agent != nil {
-				fmt.Printf("active standby mode \n");
-				fmt.Printf("%s\n\n", info.Object)
+//				fmt.Printf("active standby mode \n");
+//				fmt.Printf("%s\n\n", info.Object)
 				info.Object = InsertMonitorService(info.Object)
-				fmt.Printf("\n\n%s\n\n", info.Object)
+//				fmt.Printf("\n\n%s\n\n", info.Object)
 			}
 		} else {
 
 			arr := []string {"spec" , "template", "metadata","labels"}
 			agent := parse(info.Object, arr)["agent"]
 			if agent != nil {
-				fmt.Printf("active standby mode \n");
-				fmt.Printf("%s\n\n", info.Object)
+//				fmt.Printf("active standby mode \n");
+//				fmt.Printf("%s\n\n", info.Object)
 				info.Object = InsertMonitor(info.Object, agent.(string))
-				fmt.Printf("\n\n%s\n\n", info.Object)
+//				fmt.Printf("\n\n%s\n\n", info.Object)
 			}
 		}
 

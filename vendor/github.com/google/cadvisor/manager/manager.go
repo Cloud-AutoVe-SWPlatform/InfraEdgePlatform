@@ -949,11 +949,13 @@ func (m *manager) createContainerLocked(containerName string, watchSource watche
 
 	klog.V(3).Infof("Added container: %q (aliases: %v, namespace: %q)", containerName, cont.info.Aliases, cont.info.Namespace)
 
+	// 컨테이너 생성시 agent 삽입이 필요한 경우 컨테이너 정보를 파일로 저장
+	// 해당 파일은 모니터 스크립트에서 파싱되어 agent가 삽입됨
 	if len(cont.info.Aliases) > 0 {
 		if len(containerName) > 0 {
 			if labels != nil {
-				fmt.Printf("[mec] %s\n", labels["annotation.io.kubernetes.container.ports"])
-				fmt.Printf("[!mec] %h %h\n", labels, cont)
+	//			fmt.Printf("[mec] %s\n", labels["annotation.io.kubernetes.container.ports"])
+	//			fmt.Printf("[!mec] %h %h\n", labels, cont)
 				var dat []map[string]string
 				json.Unmarshal([]byte(labels["annotation.io.kubernetes.container.ports"]), &dat)
 

@@ -134,6 +134,7 @@ const (
 	ContainerLogsDir = "/var/log/containers"
 
 	// MaxContainerBackOff is the max backoff period, exported for the e2e test
+	// failover 테스트 시 과도한 backoff 시간을 막기위해 조정
 	MaxContainerBackOff = 32 * time.Second
 
 	// Capacity of the channel for storing pods to kill. A small number should
@@ -168,6 +169,7 @@ const (
 	// backOffPeriod is the period to back off when pod syncing results in an
 	// error. It is also used as the base period for the exponential backoff
 	// container restarts and image pulls.
+	// failover 테스트 시 과도한 backoff 시간을 막기위해 조정
 	backOffPeriod = time.Second * 8
 
 	// ContainerGCPeriod is the period for performing container garbage collection.
