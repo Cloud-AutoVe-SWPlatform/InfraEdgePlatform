@@ -226,6 +226,52 @@ func Discover(machineInfo *cadvisorapi.MachineInfo, numaNodeInfo NUMANodeInfo) (
 	CPUDetails := CPUDetails{}
 	numPhysicalCores := 0
 
+
+	// isolcpus에 해당하는 cpu의 경우 kubelet에서 관리하는 cpu topology에서 제외
+	isolcores := make(map[int]bool)
+	dat, err := ioutil.ReadFile("/sys/devices/system/cpu/isolated")
+
+	if err == nil {
+		//isolcpus 데이터 파싱
+	    var a, b int
+	    var dash, used bool
+	    for ch := range dat {
+	        if dat[ch] == '-' {
+	            dash = true
+	        } else if dat[ch] == ',' {
+	            if dash {
+	                for i := a; i <= b; i++ {
+	                    isolcores[i] = true
+	                }
+	            } else {
+		            isolcores[a] = true
+	            }
+	            a = 0
+	            b = 0
+	            dash = false
+	            used = false
+	        } else if '0' <= dat[ch] && dat[ch] <= '9' {
+	            if dash {
+	                b = b*10 + int(dat[ch]-'0')
+	            } else {
+	                a = a*10 + int(dat[ch]-'0')
+	                used = true
+	            }
+	        }
+	    }
+
+	    if used {
+	        if dash {
+	            for i := a; i <= b; i++ {
+	                isolcores[i] = true
+	            }
+	        } else {
+	            isolcores[a] = true
+	        }
+	    }
+	}
+
+
 	for _, socket := range machineInfo.Topology {
 		numPhysicalCores += len(socket.Cores)
 		for _, core := range socket.Cores {
@@ -236,6 +282,11 @@ func Discover(machineInfo *cadvisorapi.MachineInfo, numaNodeInfo NUMANodeInfo) (
 						if cset.Contains(cpu) {
 							numaNodeID = id
 						}
+					}
+
+					// 해당 cpu가 isolcpus로 지정된 cpu인 경우 넘어감
+					if _, exists := isolcores[cpu]; exists {
+						continue
 					}
 					CPUDetails[cpu] = CPUInfo{
 						CoreID:     coreID,
