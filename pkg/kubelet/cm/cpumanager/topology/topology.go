@@ -67,6 +67,7 @@ type CPUInfo struct {
 	NUMANodeID int
 	SocketID   int
 	CoreID     int
+	isIsolCPU  bool
 }
 
 // KeepOnly returns a new CPUDetails object with only the supplied cpus.
@@ -188,6 +189,28 @@ func (d CPUDetails) CPUs() cpuset.CPUSet {
 	}
 	return b.Result()
 }
+// CPUs returns all of the logical CPU IDs in this CPUDetails.
+func (d CPUDetails) CPUsExceptIsolCPUs() cpuset.CPUSet {
+	b := cpuset.NewBuilder()
+	for cpuID, info := range d {
+		if !info.isIsolCPU {
+			b.Add(cpuID)
+		}
+	}
+	return b.Result()
+}
+
+// CPUs returns all of the logical CPU IDs in this CPUDetails.
+func (d CPUDetails) CPUsInIsolCPUs() cpuset.CPUSet {
+	b := cpuset.NewBuilder()
+	for cpuID, info := range d {
+		if info.isIsolCPU {
+			b.Add(cpuID)
+		}
+	}
+	return b.Result()
+}
+
 
 // CPUsInNUMANodes returns all of the logical CPU IDs associated with the given
 // NUMANode IDs in this CPUDetails.
@@ -216,23 +239,12 @@ func (d CPUDetails) CPUsInCores(ids ...int) cpuset.CPUSet {
 	}
 	return b.Result()
 }
-
-// Discover returns CPUTopology based on cadvisor node info
-func Discover(machineInfo *cadvisorapi.MachineInfo, numaNodeInfo NUMANodeInfo) (*CPUTopology, error) {
-	if machineInfo.NumCores == 0 {
-		return nil, fmt.Errorf("could not detect number of cpus")
-	}
-
-	CPUDetails := CPUDetails{}
-	numPhysicalCores := 0
-
-
-	// isolcpus에 해당하는 cpu의 경우 kubelet에서 관리하는 cpu topology에서 제외
-	isolcores := make(map[int]bool)
-	dat, err := ioutil.ReadFile("/sys/devices/system/cpu/isolated")
+func LoadCoreMap(path string) map[int]bool {
+	cores := make(map[int]bool)
+	dat, err := ioutil.ReadFile(path)
 
 	if err == nil {
-		//isolcpus 데이터 파싱
+		//네트워크 전담코어 데이터 파싱
 	    var a, b int
 	    var dash, used bool
 	    for ch := range dat {
@@ -241,10 +253,10 @@ func Discover(machineInfo *cadvisorapi.MachineInfo, numaNodeInfo NUMANodeInfo) (
 	        } else if dat[ch] == ',' {
 	            if dash {
 	                for i := a; i <= b; i++ {
-	                    isolcores[i] = true
+	                    cores[i] = true
 	                }
 	            } else {
-		            isolcores[a] = true
+		            cores[a] = true
 	            }
 	            a = 0
 	            b = 0
@@ -263,14 +275,28 @@ func Discover(machineInfo *cadvisorapi.MachineInfo, numaNodeInfo NUMANodeInfo) (
 	    if used {
 	        if dash {
 	            for i := a; i <= b; i++ {
-	                isolcores[i] = true
+	                cores[i] = true
 	            }
 	        } else {
-	            isolcores[a] = true
+	            cores[a] = true
 	        }
 	    }
 	}
+	return cores
+}
+// Discover returns CPUTopology based on cadvisor node info
+func Discover(machineInfo *cadvisorapi.MachineInfo, numaNodeInfo NUMANodeInfo) (*CPUTopology, error) {
+	if machineInfo.NumCores == 0 {
+		return nil, fmt.Errorf("could not detect number of cpus")
+	}
 
+	CPUDetails := CPUDetails{}
+	numPhysicalCores := 0
+
+
+	// 네트워크 전담코어에 해당하는 cpu의 경우 kubelet에서 관리하는 cpu topology에서 제외
+	netcores := LoadCoreMap("/var/lib/kubelet/network_dedicated_cpus")
+	isolcores := LoadCoreMap("/sys/devices/system/cpu/isolated")
 
 	for _, socket := range machineInfo.Topology {
 		numPhysicalCores += len(socket.Cores)
@@ -284,14 +310,17 @@ func Discover(machineInfo *cadvisorapi.MachineInfo, numaNodeInfo NUMANodeInfo) (
 						}
 					}
 
-					// 해당 cpu가 isolcpus로 지정된 cpu인 경우 넘어감
-					if _, exists := isolcores[cpu]; exists {
+					// 해당 cpu가 네트워크 전담코어로 지정된 cpu인 경우 넘어감
+					if _, exists := netcores[cpu]; exists {
 						continue
 					}
+
+					isolcore := isolcores[cpu]
 					CPUDetails[cpu] = CPUInfo{
 						CoreID:     coreID,
 						SocketID:   socket.Id,
 						NUMANodeID: numaNodeID,
+						isIsolCPU: isolcore,
 					}
 				}
 			} else {
