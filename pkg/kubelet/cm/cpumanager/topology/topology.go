@@ -18,6 +18,7 @@ package topology
 
 import (
 	"fmt"
+	"io/ioutil"
 
 	cadvisorapi "github.com/google/cadvisor/info/v1"
 	"k8s.io/klog/v2"
@@ -283,7 +284,7 @@ func Discover(machineInfo *cadvisorapi.MachineInfo) (*CPUTopology, error) {
 						CoreID:     coreID,
 						SocketID:   core.SocketID,
 						NUMANodeID: node.Id,
-						IsIsolated: isolcores[cpu]
+						IsIsolated: isolcores[cpu],
 					}
 				}
 			} else {
