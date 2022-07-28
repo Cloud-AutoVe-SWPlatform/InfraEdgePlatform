@@ -67,6 +67,7 @@ type CPUInfo struct {
 	NUMANodeID int
 	SocketID   int
 	CoreID     int
+	IsIsolated bool
 }
 
 // KeepOnly returns a new CPUDetails object with only the supplied cpus.
@@ -217,6 +218,52 @@ func (d CPUDetails) CPUsInCores(ids ...int) cpuset.CPUSet {
 	return b.Result()
 }
 
+func LoadCoreMap(path string) map[int]bool {
+	cores := make(map[int]bool)
+	dat, err := ioutil.ReadFile(path)
+	if err != nil {
+	    return cores;
+	}
+
+	var a, b int
+	var dash, used bool
+	for ch := range dat {
+	    if dat[ch] == '-' {
+	        dash = true
+	    } else if dat[ch] == ',' {
+	        if dash {
+	            for i := a; i <= b; i++ {
+	                cores[i] = true
+	            }
+	        } else {
+	            cores[a] = true
+	        }
+	        a = 0
+	        b = 0
+	        dash = false
+	        used = false
+	    } else if '0' <= dat[ch] && dat[ch] <= '9' {
+	        if dash {
+	            b = b*10 + int(dat[ch]-'0')
+	        } else {
+	            a = a*10 + int(dat[ch]-'0')
+	            used = true
+	        }
+	    }
+	}
+
+	if used {
+	    if dash {
+	        for i := a; i <= b; i++ {
+	            cores[i] = true
+	        }
+	    } else {
+	        cores[a] = true
+	    }
+	}
+	return cores
+}
+
 // Discover returns CPUTopology based on cadvisor node info
 func Discover(machineInfo *cadvisorapi.MachineInfo) (*CPUTopology, error) {
 	if machineInfo.NumCores == 0 {
@@ -225,6 +272,7 @@ func Discover(machineInfo *cadvisorapi.MachineInfo) (*CPUTopology, error) {
 
 	CPUDetails := CPUDetails{}
 	numPhysicalCores := 0
+	isolcores := LoadCoreMap("/sys/devices/system/cpu/isolated")
 
 	for _, node := range machineInfo.Topology {
 		numPhysicalCores += len(node.Cores)
@@ -235,6 +283,7 @@ func Discover(machineInfo *cadvisorapi.MachineInfo) (*CPUTopology, error) {
 						CoreID:     coreID,
 						SocketID:   core.SocketID,
 						NUMANodeID: node.Id,
+						IsIsolated: isolcores[cpu]
 					}
 				}
 			} else {
