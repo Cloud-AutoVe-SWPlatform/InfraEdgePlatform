@@ -125,7 +125,7 @@ func NewStaticPolicy(topology *topology.CPUTopology, numReservedCPUs int, reserv
 		options:     opts,
 	}
 
-	allCPUs := topology.CPUDetails.CPUs()
+	allCPUs := topology.CPUDetails.CPUsExceptIsolCPUs()
 	var reserved cpuset.CPUSet
 	if reservedCPUs.Size() > 0 {
 		reserved = reservedCPUs
@@ -276,6 +276,12 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 
 		// Call Topology Manager to get the aligned socket affinity across all hint providers.
 		hint := p.affinity.GetAffinity(string(pod.UID), container.Name)
+		// If container's type is rt, assign isolcpus.
+		// FIXME
+		if pod.ObjectMeta.Labels["edge"] == "rt" {
+			isolcpus := p.topology.CPUDetails.CPUsInIsolCPUs().ToSlice()
+			hint.NUMANodeAffinity, _ = bitmask.NewBitMask(isolcpus...)
+		}
 		klog.InfoS("Topology Affinity", "pod", klog.KObj(pod), "containerName", container.Name, "affinity", hint)
 
 		// Allocate CPUs according to the NUMA affinity contained in the hint.

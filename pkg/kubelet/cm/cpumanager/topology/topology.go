@@ -219,48 +219,68 @@ func (d CPUDetails) CPUsInCores(ids ...int) cpuset.CPUSet {
 	return b.Result()
 }
 
+func (d CPUDetails) CPUsInIsolCPUs() cpuset.CPUSet {
+	b := cpuset.NewBuilder()
+	for cpuID, info := range d {
+		if info.IsIsolated {
+			b.Add(cpuID)
+		}
+	}
+	return b.Result()
+}
+
+func (d CPUDetails) CPUsExceptIsolCPUs() cpuset.CPUSet {
+	b := cpuset.NewBuilder()
+	for cpuID, info := range d {
+		if !info.IsIsolated {
+			b.Add(cpuID)
+		}
+	}
+	return b.Result()
+}
+
 func LoadCoreMap(path string) map[int]bool {
 	cores := make(map[int]bool)
 	dat, err := ioutil.ReadFile(path)
 	if err != nil {
-	    return cores;
+		return cores;
 	}
 
 	var a, b int
 	var dash, used bool
 	for ch := range dat {
-	    if dat[ch] == '-' {
-	        dash = true
-	    } else if dat[ch] == ',' {
-	        if dash {
-	            for i := a; i <= b; i++ {
-	                cores[i] = true
-	            }
-	        } else {
-	            cores[a] = true
-	        }
-	        a = 0
-	        b = 0
-	        dash = false
-	        used = false
-	    } else if '0' <= dat[ch] && dat[ch] <= '9' {
-	        if dash {
-	            b = b*10 + int(dat[ch]-'0')
-	        } else {
-	            a = a*10 + int(dat[ch]-'0')
-	            used = true
-	        }
-	    }
+		if dat[ch] == '-' {
+			dash = true
+		} else if dat[ch] == ',' {
+			if dash {
+				for i := a; i <= b; i++ {
+					cores[i] = true
+				}
+			} else {
+				cores[a] = true
+			}
+			a = 0
+			b = 0
+			dash = false
+			used = false
+		} else if '0' <= dat[ch] && dat[ch] <= '9' {
+			if dash {
+				b = b*10 + int(dat[ch]-'0')
+			} else {
+				a = a*10 + int(dat[ch]-'0')
+				used = true
+			}
+		}
 	}
 
 	if used {
-	    if dash {
-	        for i := a; i <= b; i++ {
-	            cores[i] = true
-	        }
-	    } else {
-	        cores[a] = true
-	    }
+		if dash {
+			for i := a; i <= b; i++ {
+				cores[i] = true
+			}
+		} else {
+			cores[a] = true
+		}
 	}
 	return cores
 }
