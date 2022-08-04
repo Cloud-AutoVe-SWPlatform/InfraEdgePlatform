@@ -275,18 +275,29 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 		}
 
 		// Call Topology Manager to get the aligned socket affinity across all hint providers.
-		hint := p.affinity.GetAffinity(string(pod.UID), container.Name)
 		// If container's type is rt, assign isolcpus.
 		// FIXME
+
+		var cpuset cpuset.CPUSet
+		var err error
+
 		if pod.ObjectMeta.Labels["edge"] == "rt" {
-			isolcpus := p.topology.CPUDetails.CPUsInIsolCPUs().ToSlice()
-			hint.NUMANodeAffinity, _ = bitmask.NewBitMask(isolcpus...)
-			klog.InfoS("static policy: assign isolcpus for rt container", "pod", klog.KObj(pod), "containerName", container.Name, "affinity", hint)
+			klog.InfoS("static policy: assign isolcpus for rt container", "pod", klog.KObj(pod), "containerName", container.Name)
+			cpuset, err = p.allocateIsolCPUs(s, numCPUs, p.cpusToReuse[string(pod.UID)])
+			if err != nil {
+				klog.ErrorS(err, "Unable to allocate IsolCPUs", "pod", klog.KObj(pod), "containerName", container.Name, "numCPUs", numCPUs)
+			} else {
+				s.SetCPUSet(string(pod.UID), container.Name, cpuset)
+				p.updateCPUsToReuse(pod, container, cpuset)
+				return nil
+			}
 		}
+
+		hint := p.affinity.GetAffinity(string(pod.UID), container.Name)
 		klog.InfoS("Topology Affinity", "pod", klog.KObj(pod), "containerName", container.Name, "affinity", hint)
 
 		// Allocate CPUs according to the NUMA affinity contained in the hint.
-		cpuset, err := p.allocateCPUs(s, numCPUs, hint.NUMANodeAffinity, p.cpusToReuse[string(pod.UID)])
+		cpuset, err = p.allocateCPUs(s, numCPUs, hint.NUMANodeAffinity, p.cpusToReuse[string(pod.UID)])
 		if err != nil {
 			klog.ErrorS(err, "Unable to allocate CPUs", "pod", klog.KObj(pod), "containerName", container.Name, "numCPUs", numCPUs)
 			return err
@@ -309,10 +320,28 @@ func (p *staticPolicy) RemoveContainer(s state.State, podUID string, containerNa
 	return nil
 }
 
+func (p *staticPolicy) allocateIsolCPUs(s state.State, numCPUs int, reusableCPUs cpuset.CPUSet) (cpuset.CPUSet, error) {
+	klog.InfoS("AllocateIsolCPUs", "numCPUs", numCPUs)
+
+	allocatableCPUs := p.GetAllocatableCPUs(s).Difference(p.topology.CPUDetails.CPUsExceptIsolCPUs()).Union(reusableCPUs)
+
+	// Get any remaining CPUs from what's leftover after attempting to grab aligned ones.
+	result, err := takeByTopology(p.topology, allocatableCPUs, numCPUs)
+	if err != nil {
+		return cpuset.NewCPUSet(), err
+	}
+
+	// Remove allocated CPUs from the shared CPUSet.
+	s.SetDefaultCPUSet(s.GetDefaultCPUSet().Difference(result))
+
+	klog.InfoS("AllocateCPUs", "result", result)
+	return result, nil
+}
+
 func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bitmask.BitMask, reusableCPUs cpuset.CPUSet) (cpuset.CPUSet, error) {
 	klog.InfoS("AllocateCPUs", "numCPUs", numCPUs, "socket", numaAffinity)
 
-	allocatableCPUs := p.GetAllocatableCPUs(s).Union(reusableCPUs)
+	allocatableCPUs := p.GetAllocatableCPUs(s).Union(reusableCPUs).Difference(p.topology.CPUDetails.CPUsInIsolCPUs())
 
 	// If there are aligned CPUs in numaAffinity, attempt to take those first.
 	result := cpuset.NewCPUSet()

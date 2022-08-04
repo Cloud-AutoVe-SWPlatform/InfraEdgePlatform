@@ -221,9 +221,9 @@ func (d CPUDetails) CPUsInCores(ids ...int) cpuset.CPUSet {
 
 func (d CPUDetails) CPUsInIsolCPUs() cpuset.CPUSet {
 	b := cpuset.NewBuilder()
-	for cpuID, info := range d {
+	for cpu, info := range d {
 		if info.IsIsolated {
-			b.Add(cpuID)
+			b.Add(cpu)
 		}
 	}
 	return b.Result()
@@ -231,9 +231,9 @@ func (d CPUDetails) CPUsInIsolCPUs() cpuset.CPUSet {
 
 func (d CPUDetails) CPUsExceptIsolCPUs() cpuset.CPUSet {
 	b := cpuset.NewBuilder()
-	for cpuID, info := range d {
+	for cpu, info := range d {
 		if !info.IsIsolated {
-			b.Add(cpuID)
+			b.Add(cpu)
 		}
 	}
 	return b.Result()
