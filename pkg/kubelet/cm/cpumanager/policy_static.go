@@ -281,6 +281,7 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 		if pod.ObjectMeta.Labels["edge"] == "rt" {
 			isolcpus := p.topology.CPUDetails.CPUsInIsolCPUs().ToSlice()
 			hint.NUMANodeAffinity, _ = bitmask.NewBitMask(isolcpus...)
+			klog.InfoS("static policy: assign isolcpus for rt container", "pod", klog.KObj(pod), "containerName", container.Name, "affinity", hint)
 		}
 		klog.InfoS("Topology Affinity", "pod", klog.KObj(pod), "containerName", container.Name, "affinity", hint)
 
