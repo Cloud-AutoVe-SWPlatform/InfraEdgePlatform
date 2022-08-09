@@ -50,6 +50,7 @@ func (cm *containerManagerImpl) createNodeAllocatableCgroups() error {
 		// The default limits for cpu shares can be very low which can lead to CPU starvation for pods.
 		ResourceParameters: getCgroupConfig(nodeAllocatable),
 	}
+	cgroupConfig.ResourceParameters.CpuRtRuntime = 500000
 	if cm.cgroupManager.Exists(cgroupConfig.Name) {
 		return nil
 	}
@@ -78,7 +79,7 @@ func (cm *containerManagerImpl) enforceNodeAllocatableCgroups() error {
 		Name:               cm.cgroupRoot,
 		ResourceParameters: getCgroupConfig(nodeAllocatable),
 	}
-
+	cgroupConfig.ResourceParameters.CpuRtRuntime = 500000
 	// Using ObjectReference for events as the node maybe not cached; refer to #42701 for detail.
 	nodeRef := &v1.ObjectReference{
 		Kind:      "Node",

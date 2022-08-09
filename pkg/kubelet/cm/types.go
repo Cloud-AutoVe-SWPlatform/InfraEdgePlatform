@@ -31,6 +31,8 @@ type ResourceConfig struct {
 	CpuQuota *int64
 	// CPU quota period.
 	CpuPeriod *uint64
+	// CPU realtime runtime
+	CpuRtRuntime int64
 	// HugePageLimit map from page size (in bytes) to limit (in bytes)
 	HugePageLimit map[int64]int64
 	// Maximum number of pids

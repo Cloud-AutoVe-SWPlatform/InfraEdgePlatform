@@ -77,6 +77,11 @@ type staticPolicy struct {
 	reserved cpuset.CPUSet
 	// topology manager reference to get container Topology affinity
 	affinity topologymanager.Store
+
+	activePod   map[string]string
+	standbyPods map[string][]string
+	contPod	 map[string]string
+	firstPod	map[string]string
 }
 
 // Ensure staticPolicy implements Policy interface
@@ -107,9 +112,13 @@ func NewStaticPolicy(topology *topology.CPUTopology, numReservedCPUs int, reserv
 	klog.Infof("[cpumanager] reserved %d CPUs (\"%s\") not available for exclusive assignment", reserved.Size(), reserved)
 
 	return &staticPolicy{
-		topology: topology,
-		reserved: reserved,
-		affinity: affinity,
+		topology:	 topology,
+		reserved:	 reserved,
+		affinity:	 affinity,
+		activePod:   make(map[string]string),
+		standbyPods: make(map[string][]string),
+		contPod:	 make(map[string]string),
+		firstPod:	make(map[string]string),
 	}, nil
 }
 
@@ -188,15 +197,56 @@ func (p *staticPolicy) assignableCPUs(s state.State) cpuset.CPUSet {
 	return s.GetDefaultCPUSet().Difference(p.reserved)
 }
 
+func AppendIfMissing(slice []string, i string) []string {
+	for _, ele := range slice {
+		if ele == i {
+			return slice
+		}
+	}
+	return append(slice, i)
+}
+
+
 func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Container) error {
 	if numCPUs := p.guaranteedCPUs(pod, container); numCPUs != 0 {
 		klog.Infof("[cpumanager] static policy: Allocate (pod: %s, container: %s)", pod.Name, container.Name)
 		// container belongs in an exclusively allocated pool
 
+		if len(pod.GenerateName) > 0 {
+			containerID := string(pod.UID)
+			p.contPod[containerID] = pod.GenerateName
+			klog.Infof("[active/standby] new active standby  pod %s  %s come ", containerID, pod)
+			// 현재 active pod이 이미 등록되었다면 standby pod으로 등록
+			// 그러나 지금 pod이 first pod이었다면 active pod을 대체
+			if _, ok := p.activePod[pod.GenerateName]; ok {
+				if p.firstPod[pod.GenerateName] != pod.Name {
+					if len(p.standbyPods[pod.GenerateName]) == 0 {
+						p.standbyPods[pod.GenerateName] = make([]string, 0, 0)
+					}
+					p.standbyPods[pod.GenerateName] = AppendIfMissing(p.standbyPods[pod.GenerateName], containerID)
+					klog.Infof("[cpumanager] active pod %s already exist", pod.GenerateName)
+					return nil
+				} else {
+					cpuset, _ := s.GetCPUSet(p.activePod[pod.GenerateName])
+					s.SetCPUSet(containerID, container.Name, cpuset)
+					s.Delete(p.activePod[pod.GenerateName])
+					p.standbyPods[pod.GenerateName] = append([]string{p.activePod[pod.GenerateName]}, p.standbyPods[pod.GenerateName]...)
+					p.activePod[pod.GenerateName] = containerID
+					return nil
+				}
+			}
+			if _, ok := p.firstPod[pod.GenerateName]; !ok {
+				p.firstPod[pod.GenerateName] = pod.Name
+			}
+			p.activePod[pod.GenerateName] = containerID
+		}
+
 		if _, ok := s.GetCPUSet(string(pod.UID), container.Name); ok {
-			klog.Infof("[cpumanager] static policy: container already present in state, skipping (pod: %s, container: %s)", pod.Name, container.Name)
+			klog.Infof("[cpumanager] static policy: container already present in state, skipping (pod: %s, container: %s)", pod.Name, container.Name
 			return nil
 		}
+
+
 
 		// Call Topology Manager to get the aligned socket affinity across all hint providers.
 		hint := p.affinity.GetAffinity(string(pod.UID), container.Name)
@@ -227,11 +277,46 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 
 func (p *staticPolicy) RemoveContainer(s state.State, podUID string, containerName string) error {
 	klog.Infof("[cpumanager] static policy: RemoveContainer (pod: %s, container: %s)", podUID, containerName)
+	containerID := podUID
 	if toRelease, ok := s.GetCPUSet(podUID, containerName); ok {
+		if pod, ok := p.contPod[containerID]; ok {
+			// 지우는 pod 이 activePod일 때 standby Pod이 있으면 standby Pod을 active로
+			// 없으면 active Pod 도 삭제
+			if p.activePod[pod] == containerID {
+				if len(p.standbyPods[pod]) > 0 {
+					p.activePod[pod] = p.standbyPods[pod][0]
+					p.standbyPods[pod] = p.standbyPods[pod][1:]
+					s.SetCPUSet(p.activePod[pod], containerName, toRelease)
+					s.Delete(containerID)
+					klog.Infof("[cpumanager] standby %s to active %s : (containers : %s) ", containerID, p.activePod[pod], p.standbyPods[pod])
+					return nil
+				} else {
+					delete(p.activePod, pod)
+					klog.Infof("[cpumanager] destroy active pod (container id: %s)", containerID)
+				}
+			} else {
+				for idx, elem := range p.standbyPods[pod] {
+					if elem == containerID {
+						p.standbyPods[pod] = append(p.standbyPods[pod][:idx], p.standbyPods[pod][idx+1:]...)
+						break
+					}
+				}
+			}
+		}
+
 		s.Delete(podUID, containerName)
 		// Mutate the shared pool, adding released cpus.
 		s.SetDefaultCPUSet(s.GetDefaultCPUSet().Union(toRelease))
+	} else if pod, ok := p.contPod[containerID]; ok {
+		for idx, elem := range p.standbyPods[pod] {
+			if elem == containerID {
+				klog.Infof("[cpumanager] destroy standby pod (container id: %s, idx %d, %s)", containerID, idx, p.standbyPods[pod])
+				p.standbyPods[pod] = append(p.standbyPods[pod][:idx], p.standbyPods[pod][idx+1:]...)
+				break
+			}
+		}
 	}
+
 	return nil
 }
 

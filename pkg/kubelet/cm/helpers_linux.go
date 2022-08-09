@@ -157,8 +157,14 @@ func ResourceConfigForPod(pod *v1.Pod, enforceCPULimits bool, cpuPeriod uint64) 
 	// determine the qos class
 	qosClass := v1qos.GetPodQOS(pod)
 
+
 	// build the result
 	result := &ResourceConfig{}
+
+	if pod.ObjectMeta.Labels["mec"] == "lowlatency" {
+		result.CpuRtRuntime = 100000
+	}
+
 	if qosClass == v1.PodQOSGuaranteed {
 		result.CpuShares = &cpuShares
 		result.CpuQuota = &cpuQuota

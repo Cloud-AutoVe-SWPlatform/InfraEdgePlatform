@@ -111,6 +111,7 @@ func (ds *dockerService) updateCreateConfig(
 				CPUShares:  rOpts.CpuShares,
 				CPUQuota:   rOpts.CpuQuota,
 				CPUPeriod:  rOpts.CpuPeriod,
+				CPURealtimeRuntime: rOpts.CpuRealtimeRuntime,
 			}
 			createConfig.HostConfig.OomScoreAdj = int(rOpts.OomScoreAdj)
 		}

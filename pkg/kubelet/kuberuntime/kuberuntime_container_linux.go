@@ -88,6 +88,9 @@ func (m *kubeGenericRuntimeManager) generateLinuxContainerConfig(container *v1.C
 	}
 
 	lc.Resources.HugepageLimits = GetHugepageLimitsFromResources(container.Resources)
+	if pod.ObjectMeta.Labels["mec"] == "lowlatency" {
+		lc.Resources.CpuRealtimeRuntime = 50000
+	}
 
 	return lc
 }

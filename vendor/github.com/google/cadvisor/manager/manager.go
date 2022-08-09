@@ -25,6 +25,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"io/ioutil"
+	"encoding/json"
 
 	"github.com/google/cadvisor/accelerators"
 	"github.com/google/cadvisor/cache/memory"
