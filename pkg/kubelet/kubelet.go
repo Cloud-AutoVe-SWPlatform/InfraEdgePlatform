@@ -17,7 +17,6 @@ limitations under the License.
 package kubelet
 
 import (
-	"context"
 	"crypto/tls"
 	"fmt"
 	"math"
@@ -2312,16 +2311,14 @@ func (kl *Kubelet) HandlePodAdditions(pods []*v1.Pod) {
 			}
 
 			if pod.ObjectMeta.Labels["edge"] == "rt" {
-				opts := metav1.GetOptions{}
-				node, err := kl.heartbeatClient.CoreV1().Nodes().Get(context.TODO(), string(kl.nodeName), opts)
+				node, err := kl.GetNode()
 				if err != nil {
 					fmt.Errorf("error getting node %q: %v", kl.nodeName, err)
 				} else {
 					originalNode := node.DeepCopy()
-					num, _ := strconv.Atoi(kl.nodeLabels["isolcpus"])
+					num, _ := strconv.Atoi(node.Labels["isolcpus"])
 					num -= numRequestedCPUsInPod(pod)
 					numstr := strconv.Itoa(num)
-					kl.nodeLabels["isolcpus"] = numstr
 					node.Labels["isolcpus"] = numstr
 					if _, _, err := nodeutil.PatchNodeStatus(kl.kubeClient.CoreV1(), types.NodeName(kl.nodeName), originalNode, node); err != nil {
 						klog.ErrorS(err, "Unable to reconcile node with API server,error updating node", "node", klog.KObj(node))
