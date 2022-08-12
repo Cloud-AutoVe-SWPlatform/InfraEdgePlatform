@@ -2361,6 +2361,21 @@ func (kl *Kubelet) HandlePodRemoves(pods []*v1.Pod) {
 		if err := kl.deletePod(pod); err != nil {
 			klog.V(2).InfoS("Failed to delete pod", "pod", klog.KObj(pod), "err", err)
 		}
+		if pod.ObjectMeta.Labels["edge"] == "rt" {
+			node, err := kl.GetNode()
+			if err != nil {
+				fmt.Errorf("error getting node %q: %v", kl.nodeName, err)
+			} else {
+				originalNode := node.DeepCopy()
+				num, _ := strconv.Atoi(node.Labels["isolcpus"])
+				num += numRequestedCPUsInPod(pod)
+				numstr := strconv.Itoa(num)
+				node.Labels["isolcpus"] = numstr
+				if _, _, err := nodeutil.PatchNodeStatus(kl.kubeClient.CoreV1(), types.NodeName(kl.nodeName), originalNode, node); err != nil {
+					klog.ErrorS(err, "Unable to reconcile node with API server,error updating node", "node", klog.KObj(node))
+				}
+			}
+		}
 	}
 }
 
