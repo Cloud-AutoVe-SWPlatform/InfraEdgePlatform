@@ -227,9 +227,9 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 					klog.Infof("[cpumanager] active pod %s already exist", pod.GenerateName)
 					return nil
 				} else {
-					cpuset, _ := s.GetCPUSet(p.activePod[pod.GenerateName])
+					cpuset, _ := s.GetCPUSet(p.activePod[pod.GenerateName], container.Name)
 					s.SetCPUSet(containerID, container.Name, cpuset)
-					s.Delete(p.activePod[pod.GenerateName])
+					s.Delete(p.activePod[pod.GenerateName], container.Name)
 					p.standbyPods[pod.GenerateName] = append([]string{p.activePod[pod.GenerateName]}, p.standbyPods[pod.GenerateName]...)
 					p.activePod[pod.GenerateName] = containerID
 					return nil
@@ -242,7 +242,7 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 		}
 
 		if _, ok := s.GetCPUSet(string(pod.UID), container.Name); ok {
-			klog.Infof("[cpumanager] static policy: container already present in state, skipping (pod: %s, container: %s)", pod.Name, container.Name
+			klog.Infof("[cpumanager] static policy: container already present in state, skipping (pod: %s, container: %s)", pod.Name, container.Name)
 			return nil
 		}
 
@@ -287,7 +287,7 @@ func (p *staticPolicy) RemoveContainer(s state.State, podUID string, containerNa
 					p.activePod[pod] = p.standbyPods[pod][0]
 					p.standbyPods[pod] = p.standbyPods[pod][1:]
 					s.SetCPUSet(p.activePod[pod], containerName, toRelease)
-					s.Delete(containerID)
+					s.Delete(containerID, containerName)
 					klog.Infof("[cpumanager] standby %s to active %s : (containers : %s) ", containerID, p.activePod[pod], p.standbyPods[pod])
 					return nil
 				} else {
