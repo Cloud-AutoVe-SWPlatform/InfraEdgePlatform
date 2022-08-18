@@ -41,4 +41,6 @@ type Policy interface {
 	GetPodTopologyHints(s state.State, pod *v1.Pod) map[string][]topologymanager.TopologyHint
 	// GetAllocatableCPUs returns the assignable (not allocated) CPUs
 	GetAllocatableCPUs(m state.State) cpuset.CPUSet
+	// GetAllocatableCPUs returns the assignable (not allocated) isolated CPUs
+	GetAllocatableIsolCPUs(m state.State) cpuset.CPUSet
 }

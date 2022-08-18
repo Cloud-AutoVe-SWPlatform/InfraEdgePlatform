@@ -233,3 +233,9 @@ func (cm *FakeContainerManager) GetNodeAllocatableAbsolute() v1.ResourceList {
 	defer cm.Unlock()
 	return nil
 }
+
+func (cm *FakeContainerManager) GetAllocatableIsolCPUs() []int64 {
+	cm.Lock()
+	defer cm.Unlock()
+	return nil
+}

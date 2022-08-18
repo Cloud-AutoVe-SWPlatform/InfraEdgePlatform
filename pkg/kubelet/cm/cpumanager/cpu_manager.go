@@ -92,6 +92,9 @@ type Manager interface {
 	// GetCPUAffinity returns cpuset which includes cpus from shared pools
 	// as well as exclusively allocated cpus
 	GetCPUAffinity(podUID, containerName string) cpuset.CPUSet
+
+	// GetAllocatableCPUs returns the assignable (not allocated) isolated CPUs
+	GetAllocatableIsolCPUs() cpuset.CPUSet
 }
 
 type manager struct {
@@ -336,6 +339,10 @@ func (m *manager) GetPodTopologyHints(pod *v1.Pod) map[string][]topologymanager.
 
 func (m *manager) GetAllocatableCPUs() cpuset.CPUSet {
 	return m.allocatableCPUs.Clone()
+}
+
+func (m *manager) GetAllocatableIsolCPUs() cpuset.CPUSet {
+	return m.policy.GetAllocatableIsolCPUs(m.state)
 }
 
 type reconciledContainer struct {

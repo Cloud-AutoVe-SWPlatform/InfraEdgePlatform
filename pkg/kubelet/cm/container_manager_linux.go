@@ -1092,6 +1092,10 @@ func (cm *containerManagerImpl) GetAllocatableMemory() []*podresourcesapi.Contai
 	return containerMemoryFromBlock(cm.memoryManager.GetAllocatableMemory())
 }
 
+func (cm *containerManagerImpl) GetAllocatableIsolCPUs() []int64 {
+	return cm.cpuManager.GetAllocatableIsolCPUs().ToSliceNoSortInt64()
+}
+
 func (cm *containerManagerImpl) ShouldResetExtendedResourceCapacity() bool {
 	return cm.deviceManager.ShouldResetExtendedResourceCapacity()
 }

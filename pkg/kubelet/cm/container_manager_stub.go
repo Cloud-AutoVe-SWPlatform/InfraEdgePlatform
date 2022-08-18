@@ -151,6 +151,10 @@ func (cm *containerManagerStub) GetNodeAllocatableAbsolute() v1.ResourceList {
 	return nil
 }
 
+func (cm *containerManagerStub) GetAllocatableIsolCPUs() []int64 {
+	return nil
+}
+
 func NewStubContainerManager() ContainerManager {
 	return &containerManagerStub{shouldResetExtendedResourceCapacity: false}
 }
