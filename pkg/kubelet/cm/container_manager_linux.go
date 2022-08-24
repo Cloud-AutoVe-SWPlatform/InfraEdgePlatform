@@ -1096,6 +1096,10 @@ func (cm *containerManagerImpl) GetAllocatableIsolCPUs() []int64 {
 	return cm.cpuManager.GetAllocatableIsolCPUs().ToSliceNoSortInt64()
 }
 
+func (cm *containerManagerImpl) ResetRtCores(cores map[int]bool) {
+	cm.cpuManager.ResetRtCores(cores)
+}
+
 func (cm *containerManagerImpl) ShouldResetExtendedResourceCapacity() bool {
 	return cm.deviceManager.ShouldResetExtendedResourceCapacity()
 }

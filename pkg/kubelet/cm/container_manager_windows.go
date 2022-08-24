@@ -259,3 +259,7 @@ func (cm *containerManagerImpl) GetNodeAllocatableAbsolute() v1.ResourceList {
 func (cm *containerManagerImpl) GetAllocatableIsolCPUs() []int64 {
 	return nil
 }
+
+func (cm *containerManagerImpl) ResetRtCores(cores map[int]bool) {
+	return
+}

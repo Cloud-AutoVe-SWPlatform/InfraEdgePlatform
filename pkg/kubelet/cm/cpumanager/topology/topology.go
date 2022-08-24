@@ -63,6 +63,19 @@ func (topo *CPUTopology) CPUsPerSocket() int {
 	return topo.NumCPUs / topo.NumSockets
 }
 
+func (topo *CPUTopology) ResetRtCores(cores map[int]bool) {
+	NewCPUDetails := CPUDetails{}
+	for k, v := range topo.CPUDetails {
+		NewCPUDetails[k] = CPUInfo{
+			CoreID:     v.CoreID,
+			SocketID:   v.SocketID,
+			NUMANodeID: v.NUMANodeID,
+			IsIsolated: cores[k],
+		}
+	}
+	topo.CPUDetails = NewCPUDetails
+}
+
 // CPUInfo contains the NUMA, socket, and core IDs associated with a CPU.
 type CPUInfo struct {
 	NUMANodeID int
@@ -293,7 +306,7 @@ func Discover(machineInfo *cadvisorapi.MachineInfo) (*CPUTopology, error) {
 
 	CPUDetails := CPUDetails{}
 	numPhysicalCores := 0
-	isolcores := LoadCoreMap("/sys/devices/system/cpu/isolated")
+	isolcores := LoadCoreMap("/var/lib/kubelet/rtcores")
 
 	for _, node := range machineInfo.Topology {
 		numPhysicalCores += len(node.Cores)

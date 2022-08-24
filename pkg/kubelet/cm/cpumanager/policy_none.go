@@ -78,3 +78,6 @@ func (p *nonePolicy) GetAllocatableCPUs(m state.State) cpuset.CPUSet {
 func (p *nonePolicy) GetAllocatableIsolCPUs(m state.State) cpuset.CPUSet {
 	return cpuset.NewCPUSet()
 }
+
+func (p *nonePolicy) ResetRtCores(cores map[int]bool) {
+}

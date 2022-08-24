@@ -43,4 +43,5 @@ type Policy interface {
 	GetAllocatableCPUs(m state.State) cpuset.CPUSet
 	// GetAllocatableCPUs returns the assignable (not allocated) isolated CPUs
 	GetAllocatableIsolCPUs(m state.State) cpuset.CPUSet
+	ResetRtCores(cores map[int]bool)
 }

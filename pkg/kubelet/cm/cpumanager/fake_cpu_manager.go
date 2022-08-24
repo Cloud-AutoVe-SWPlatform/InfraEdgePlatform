@@ -90,6 +90,10 @@ func (m *fakeManager) GetAllocatableIsolCPUs() cpuset.CPUSet {
 	return cpuset.CPUSet{}
 }
 
+func (m *fakeManager) ResetRtCores(cores map[int]bool) {
+	return
+}
+
 // NewFakeManager creates empty/fake cpu manager
 func NewFakeManager() Manager {
 	return &fakeManager{

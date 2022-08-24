@@ -228,6 +228,10 @@ func (p *staticPolicy) GetAllocatableIsolCPUs(s state.State) cpuset.CPUSet {
 	return s.GetDefaultCPUSet().Difference(p.reserved).Difference(p.topology.CPUDetails.CPUsExceptIsolCPUs())
 }
 
+func (p *staticPolicy) ResetRtCores(cores map[int]bool) {
+	p.topology.ResetRtCores(cores)
+}
+
 func (p *staticPolicy) updateCPUsToReuse(pod *v1.Pod, container *v1.Container, cset cpuset.CPUSet) {
 	// If pod entries to m.cpusToReuse other than the current pod exist, delete them.
 	for podUID := range p.cpusToReuse {

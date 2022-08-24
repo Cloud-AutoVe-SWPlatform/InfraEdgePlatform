@@ -239,3 +239,8 @@ func (cm *FakeContainerManager) GetAllocatableIsolCPUs() []int64 {
 	defer cm.Unlock()
 	return nil
 }
+
+func (cm *FakeContainerManager) ResetRtCores(cores map[int]bool) {
+	cm.Lock()
+	defer cm.Unlock()
+}

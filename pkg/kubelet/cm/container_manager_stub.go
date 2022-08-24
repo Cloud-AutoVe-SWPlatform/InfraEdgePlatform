@@ -155,6 +155,10 @@ func (cm *containerManagerStub) GetAllocatableIsolCPUs() []int64 {
 	return nil
 }
 
+func (m *containerManagerStub) ResetRtCores(cores map[int]bool) {
+	return
+}
+
 func NewStubContainerManager() ContainerManager {
 	return &containerManagerStub{shouldResetExtendedResourceCapacity: false}
 }

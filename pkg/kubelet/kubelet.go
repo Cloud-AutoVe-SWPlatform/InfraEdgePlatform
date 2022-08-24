@@ -24,6 +24,8 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"io/ioutil"
+	"reflect"
 	sysruntime "runtime"
 	"sort"
 	"strings"
@@ -840,6 +842,7 @@ func NewMainKubelet(kubeCfg *kubeletconfiginternal.KubeletConfiguration,
 
 	klet.admitHandlers.AddPodAdmitHandler(klet.containerManager.GetAllocateResourcesPodAdmitHandler())
 
+
 	criticalPodAdmissionHandler := preemption.NewCriticalPodAdmissionHandler(klet.GetActivePods, killPodNow(klet.podWorkers, kubeDeps.Recorder), kubeDeps.Recorder)
 	klet.admitHandlers.AddPodAdmitHandler(lifecycle.NewPredicateAdmitHandler(klet.getNodeAnyWay, criticalPodAdmissionHandler, klet.containerManager.UpdatePluginResources))
 	// apply functional Option's
@@ -1225,6 +1228,8 @@ type Kubelet struct {
 
 	// Handles node shutdown events for the Node.
 	shutdownManager nodeshutdown.Manager
+
+	rtcores map[int]bool
 }
 
 // ListPodStats is delegated to StatsProvider, which implements stats.Provider interface
@@ -1433,6 +1438,10 @@ func (kl *Kubelet) initializeRuntimeDependentModules() {
 		klog.ErrorS(err, "Failed to start ContainerManager")
 		os.Exit(1)
 	}
+
+	kl.setRtCoresLabel(len(kl.containerManager.GetAllocatableIsolCPUs()))
+	go wait.Until(kl.checkRtCores, 1*time.Second, wait.NeverStop)
+
 	// eviction manager must start after cadvisor because it needs to know if the container runtime has a dedicated imagefs
 	kl.evictionManager.Start(kl.StatsProvider, kl.GetActivePods, kl.podResourcesAreReclaimed, evictionMonitoringPeriod)
 
@@ -1518,6 +1527,94 @@ func (kl *Kubelet) Run(updates <-chan kubetypes.PodUpdate) {
 // have reached a terminal lifecycle phase due to container exits (for
 // RestartNever or RestartOnFailure) and the next method invoked will by
 // syncTerminatingPod.
+func LoadCoreMap(path string) map[int]bool {
+	cores := make(map[int]bool)
+	dat, err := ioutil.ReadFile(path)
+	if err != nil {
+		return cores;
+	}
+
+	var a, b int
+	var dash, used bool
+	for ch := range dat {
+		if dat[ch] == '-' {
+			dash = true
+		} else if dat[ch] == ',' {
+			if dash {
+				for i := a; i <= b; i++ {
+					cores[i] = true
+				}
+			} else {
+				cores[a] = true
+			}
+			a = 0
+			b = 0
+			dash = false
+			used = false
+		} else if '0' <= dat[ch] && dat[ch] <= '9' {
+			if dash {
+				b = b*10 + int(dat[ch]-'0')
+			} else {
+				a = a*10 + int(dat[ch]-'0')
+				used = true
+			}
+		}
+	}
+
+	if used {
+		if dash {
+			for i := a; i <= b; i++ {
+				cores[i] = true
+			}
+		} else {
+			cores[a] = true
+		}
+	}
+	return cores
+}
+
+func (kl *Kubelet) setRtCoresLabel(num int) {
+	node, err := kl.GetNode()
+	if err != nil {
+		fmt.Errorf("error getting node %q: %v", kl.nodeName, err)
+	} else {
+		originalNode := node.DeepCopy()
+		node.Labels["isolcpus"] = strconv.Itoa(num)
+		if _, _, err := nodeutil.PatchNodeStatus(kl.kubeClient.CoreV1(), types.NodeName(kl.nodeName), originalNode, node); err != nil {
+			klog.ErrorS(err, "Unable to reconcile node with API server,error updating node", "node", klog.KObj(node))
+		}
+	}
+}
+
+func (kl *Kubelet) updateRtCoresLabel(delta int) {
+	node, err := kl.GetNode()
+	if err != nil {
+		fmt.Errorf("error getting node %q: %v", kl.nodeName, err)
+	} else {
+		originalNode := node.DeepCopy()
+		num, _ := strconv.Atoi(node.Labels["isolcpus"])
+		num += delta
+		numstr := strconv.Itoa(num)
+		node.Labels["isolcpus"] = numstr
+		if _, _, err := nodeutil.PatchNodeStatus(kl.kubeClient.CoreV1(), types.NodeName(kl.nodeName), originalNode, node); err != nil {
+			klog.ErrorS(err, "Unable to reconcile node with API server,error updating node", "node", klog.KObj(node))
+		}
+	}
+}
+
+
+func (kl *Kubelet) checkRtCores() {
+	rtcores := LoadCoreMap("/var/lib/kubelet/rtcores");
+
+	if kl.rtcores == nil || !reflect.DeepEqual(kl.rtcores, rtcores) {
+		kl.rtcores = rtcores
+		klog.InfoS("Update rtcores")
+		kl.containerManager.ResetRtCores(kl.rtcores)
+		kl.setRtCoresLabel(len(kl.rtcores))
+	}
+}
+
+// syncPod is the transaction script for the sync of a single pod.
 //
 // Arguments:
 //
@@ -2311,19 +2408,7 @@ func (kl *Kubelet) HandlePodAdditions(pods []*v1.Pod) {
 			}
 
 			if pod.ObjectMeta.Labels["edge"] == "rt" {
-				node, err := kl.GetNode()
-				if err != nil {
-					fmt.Errorf("error getting node %q: %v", kl.nodeName, err)
-				} else {
-					originalNode := node.DeepCopy()
-					num, _ := strconv.Atoi(node.Labels["isolcpus"])
-					num -= numRequestedCPUsInPod(pod)
-					numstr := strconv.Itoa(num)
-					node.Labels["isolcpus"] = numstr
-					if _, _, err := nodeutil.PatchNodeStatus(kl.kubeClient.CoreV1(), types.NodeName(kl.nodeName), originalNode, node); err != nil {
-						klog.ErrorS(err, "Unable to reconcile node with API server,error updating node", "node", klog.KObj(node))
-					}
-				}
+				kl.updateRtCoresLabel(-numRequestedCPUsInPod(pod))
 			}
 		}
 		mirrorPod, _ := kl.podManager.GetMirrorPodByPod(pod)
@@ -2362,19 +2447,7 @@ func (kl *Kubelet) HandlePodRemoves(pods []*v1.Pod) {
 			klog.V(2).InfoS("Failed to delete pod", "pod", klog.KObj(pod), "err", err)
 		}
 		if pod.ObjectMeta.Labels["edge"] == "rt" {
-			node, err := kl.GetNode()
-			if err != nil {
-				fmt.Errorf("error getting node %q: %v", kl.nodeName, err)
-			} else {
-				originalNode := node.DeepCopy()
-				num, _ := strconv.Atoi(node.Labels["isolcpus"])
-				num += numRequestedCPUsInPod(pod)
-				numstr := strconv.Itoa(num)
-				node.Labels["isolcpus"] = numstr
-				if _, _, err := nodeutil.PatchNodeStatus(kl.kubeClient.CoreV1(), types.NodeName(kl.nodeName), originalNode, node); err != nil {
-					klog.ErrorS(err, "Unable to reconcile node with API server,error updating node", "node", klog.KObj(node))
-				}
-			}
+			kl.updateRtCoresLabel(numRequestedCPUsInPod(pod))
 		}
 	}
 }

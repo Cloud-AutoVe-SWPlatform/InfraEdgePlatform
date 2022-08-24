@@ -95,6 +95,8 @@ type Manager interface {
 
 	// GetAllocatableCPUs returns the assignable (not allocated) isolated CPUs
 	GetAllocatableIsolCPUs() cpuset.CPUSet
+	// reset rt cores
+	ResetRtCores(cores map[int]bool)
 }
 
 type manager struct {
@@ -143,6 +145,9 @@ type manager struct {
 
 	// pendingAdmissionPod contain the pod during the admission phase
 	pendingAdmissionPod *v1.Pod
+
+	// set if rtcore list is modified
+	isResetRtCores bool
 }
 
 var _ Manager = &manager{}
@@ -345,6 +350,18 @@ func (m *manager) GetAllocatableIsolCPUs() cpuset.CPUSet {
 	return m.policy.GetAllocatableIsolCPUs(m.state)
 }
 
+func (m *manager) ResetRtCores(cores map[int]bool) {
+	m.Lock()
+	defer m.Unlock()
+
+	m.state.ClearState()
+	m.policy.ResetRtCores(cores)
+	m.policy.Start(m.state)
+
+	m.isResetRtCores = true
+	m.allocatableCPUs = m.policy.GetAllocatableCPUs(m.state)
+}
+
 type reconciledContainer struct {
 	podName       string
 	containerName string
@@ -410,6 +427,28 @@ func (m *manager) removeStaleState() {
 func (m *manager) reconcileState() (success []reconciledContainer, failure []reconciledContainer) {
 	success = []reconciledContainer{}
 	failure = []reconciledContainer{}
+
+	m.Lock()
+	if m.isResetRtCores {
+		m.isResetRtCores = false
+		m.Unlock()
+		klog.InfoS("ReconcileState: reset rt cores")
+
+		for _, pod := range m.activePods() {
+			allContainers := pod.Spec.InitContainers
+			allContainers = append(allContainers, pod.Spec.Containers...)
+			for _, container := range allContainers {
+				rr := m.Allocate(pod, &container)
+				if err != nil {
+					klog.ErrorS(err, "ReconcileState: allocate error")
+				} else {
+					klog.InfoS("ReconcileState: container", container.Name, " has been reallocated")
+				}
+			}
+		}
+	} else {
+		m.Unlock()
+	}
 
 	m.removeStaleState()
 	for _, pod := range m.activePods() {
