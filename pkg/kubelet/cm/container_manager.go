@@ -113,7 +113,7 @@ type ContainerManager interface {
 	GetAllocateResourcesPodAdmitHandler() lifecycle.PodAdmitHandler
 
 	// rtst patched
-	GetAllocatableIsolCPUs() []int64
+	GetAllocatableRtCores() []int64
 	ResetRtCores(map[int]bool)
 
 	// GetNodeAllocatableAbsolute returns the absolute value of Node Allocatable which is primarily useful for enforcement.

@@ -93,8 +93,9 @@ type Manager interface {
 	// as well as exclusively allocated cpus
 	GetCPUAffinity(podUID, containerName string) cpuset.CPUSet
 
-	// GetAllocatableCPUs returns the assignable (not allocated) isolated CPUs
-	GetAllocatableIsolCPUs() cpuset.CPUSet
+	// GetAllocatableRtCores returns the assignable (not allocated) realtime Cores
+	GetAllocatableRtCores() cpuset.CPUSet
+
 	// reset rt cores
 	ResetRtCores(cores map[int]bool)
 }
@@ -346,8 +347,8 @@ func (m *manager) GetAllocatableCPUs() cpuset.CPUSet {
 	return m.allocatableCPUs.Clone()
 }
 
-func (m *manager) GetAllocatableIsolCPUs() cpuset.CPUSet {
-	return m.policy.GetAllocatableIsolCPUs(m.state)
+func (m *manager) GetAllocatableRtCores() cpuset.CPUSet {
+	return m.policy.GetAllocatableRtCores(m.state)
 }
 
 func (m *manager) ResetRtCores(cores map[int]bool) {
@@ -438,7 +439,7 @@ func (m *manager) reconcileState() (success []reconciledContainer, failure []rec
 			allContainers := pod.Spec.InitContainers
 			allContainers = append(allContainers, pod.Spec.Containers...)
 			for _, container := range allContainers {
-				rr := m.Allocate(pod, &container)
+				err := m.Allocate(pod, &container)
 				if err != nil {
 					klog.ErrorS(err, "ReconcileState: allocate error")
 				} else {

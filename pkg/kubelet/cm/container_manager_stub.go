@@ -151,7 +151,7 @@ func (cm *containerManagerStub) GetNodeAllocatableAbsolute() v1.ResourceList {
 	return nil
 }
 
-func (cm *containerManagerStub) GetAllocatableIsolCPUs() []int64 {
+func (cm *containerManagerStub) GetAllocatableRtCores() []int64 {
 	return nil
 }
 

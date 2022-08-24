@@ -85,8 +85,8 @@ func (m *fakeManager) GetCPUAffinity(podUID, containerName string) cpuset.CPUSet
 	return cpuset.CPUSet{}
 }
 
-func (m *fakeManager) GetAllocatableIsolCPUs() cpuset.CPUSet {
-	klog.InfoS("Get Allocatable Isolated CPUs")
+func (m *fakeManager) GetAllocatableRtCores() cpuset.CPUSet {
+	klog.InfoS("Get Allocatable RT Cores")
 	return cpuset.CPUSet{}
 }
 

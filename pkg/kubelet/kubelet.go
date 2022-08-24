@@ -1439,7 +1439,7 @@ func (kl *Kubelet) initializeRuntimeDependentModules() {
 		os.Exit(1)
 	}
 
-	kl.setRtCoresLabel(len(kl.containerManager.GetAllocatableIsolCPUs()))
+	kl.setRtCoresLabel(len(kl.containerManager.GetAllocatableRtCores()))
 	go wait.Until(kl.checkRtCores, 1*time.Second, wait.NeverStop)
 
 	// eviction manager must start after cadvisor because it needs to know if the container runtime has a dedicated imagefs
@@ -1579,7 +1579,7 @@ func (kl *Kubelet) setRtCoresLabel(num int) {
 		fmt.Errorf("error getting node %q: %v", kl.nodeName, err)
 	} else {
 		originalNode := node.DeepCopy()
-		node.Labels["isolcpus"] = strconv.Itoa(num)
+		node.Labels["rtcores"] = strconv.Itoa(num)
 		if _, _, err := nodeutil.PatchNodeStatus(kl.kubeClient.CoreV1(), types.NodeName(kl.nodeName), originalNode, node); err != nil {
 			klog.ErrorS(err, "Unable to reconcile node with API server,error updating node", "node", klog.KObj(node))
 		}
@@ -1592,10 +1592,10 @@ func (kl *Kubelet) updateRtCoresLabel(delta int) {
 		fmt.Errorf("error getting node %q: %v", kl.nodeName, err)
 	} else {
 		originalNode := node.DeepCopy()
-		num, _ := strconv.Atoi(node.Labels["isolcpus"])
+		num, _ := strconv.Atoi(node.Labels["rtcores"])
 		num += delta
 		numstr := strconv.Itoa(num)
-		node.Labels["isolcpus"] = numstr
+		node.Labels["rtcores"] = numstr
 		if _, _, err := nodeutil.PatchNodeStatus(kl.kubeClient.CoreV1(), types.NodeName(kl.nodeName), originalNode, node); err != nil {
 			klog.ErrorS(err, "Unable to reconcile node with API server,error updating node", "node", klog.KObj(node))
 		}

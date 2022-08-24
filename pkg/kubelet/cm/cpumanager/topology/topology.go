@@ -70,7 +70,7 @@ func (topo *CPUTopology) ResetRtCores(cores map[int]bool) {
 			CoreID:     v.CoreID,
 			SocketID:   v.SocketID,
 			NUMANodeID: v.NUMANodeID,
-			IsIsolated: cores[k],
+			IsRtCore: cores[k],
 		}
 	}
 	topo.CPUDetails = NewCPUDetails
@@ -81,7 +81,7 @@ type CPUInfo struct {
 	NUMANodeID int
 	SocketID   int
 	CoreID     int
-	IsIsolated bool
+	IsRtCore   bool
 }
 
 // KeepOnly returns a new CPUDetails object with only the supplied cpus.
@@ -232,20 +232,20 @@ func (d CPUDetails) CPUsInCores(ids ...int) cpuset.CPUSet {
 	return b.Result()
 }
 
-func (d CPUDetails) CPUsInIsolCPUs() cpuset.CPUSet {
+func (d CPUDetails) CPUsInRtCores() cpuset.CPUSet {
 	b := cpuset.NewBuilder()
 	for cpu, info := range d {
-		if info.IsIsolated {
+		if info.IsRtCore {
 			b.Add(cpu)
 		}
 	}
 	return b.Result()
 }
 
-func (d CPUDetails) CPUsExceptIsolCPUs() cpuset.CPUSet {
+func (d CPUDetails) CPUsExceptRtCores() cpuset.CPUSet {
 	b := cpuset.NewBuilder()
 	for cpu, info := range d {
-		if !info.IsIsolated {
+		if !info.IsRtCore {
 			b.Add(cpu)
 		}
 	}
@@ -306,7 +306,7 @@ func Discover(machineInfo *cadvisorapi.MachineInfo) (*CPUTopology, error) {
 
 	CPUDetails := CPUDetails{}
 	numPhysicalCores := 0
-	isolcores := LoadCoreMap("/var/lib/kubelet/rtcores")
+	rtCores := LoadCoreMap("/var/lib/kubelet/rtcores")
 
 	for _, node := range machineInfo.Topology {
 		numPhysicalCores += len(node.Cores)
@@ -317,7 +317,7 @@ func Discover(machineInfo *cadvisorapi.MachineInfo) (*CPUTopology, error) {
 						CoreID:     coreID,
 						SocketID:   core.SocketID,
 						NUMANodeID: node.Id,
-						IsIsolated: isolcores[cpu],
+						IsRtCore: rtCores[cpu],
 					}
 				}
 			} else {

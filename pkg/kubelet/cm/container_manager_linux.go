@@ -1092,8 +1092,8 @@ func (cm *containerManagerImpl) GetAllocatableMemory() []*podresourcesapi.Contai
 	return containerMemoryFromBlock(cm.memoryManager.GetAllocatableMemory())
 }
 
-func (cm *containerManagerImpl) GetAllocatableIsolCPUs() []int64 {
-	return cm.cpuManager.GetAllocatableIsolCPUs().ToSliceNoSortInt64()
+func (cm *containerManagerImpl) GetAllocatableRtCores() []int64 {
+	return cm.cpuManager.GetAllocatableRtCores().ToSliceNoSortInt64()
 }
 
 func (cm *containerManagerImpl) ResetRtCores(cores map[int]bool) {

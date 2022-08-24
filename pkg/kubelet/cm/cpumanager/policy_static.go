@@ -125,7 +125,7 @@ func NewStaticPolicy(topology *topology.CPUTopology, numReservedCPUs int, reserv
 		options:     opts,
 	}
 
-	allCPUs := topology.CPUDetails.CPUsExceptIsolCPUs()
+	allCPUs := topology.CPUDetails.CPUsExceptRtCores()
 	var reserved cpuset.CPUSet
 	if reservedCPUs.Size() > 0 {
 		reserved = reservedCPUs
@@ -224,8 +224,8 @@ func (p *staticPolicy) GetAllocatableCPUs(s state.State) cpuset.CPUSet {
 	return s.GetDefaultCPUSet().Difference(p.reserved)
 }
 
-func (p *staticPolicy) GetAllocatableIsolCPUs(s state.State) cpuset.CPUSet {
-	return s.GetDefaultCPUSet().Difference(p.reserved).Difference(p.topology.CPUDetails.CPUsExceptIsolCPUs())
+func (p *staticPolicy) GetAllocatableRtCores(s state.State) cpuset.CPUSet {
+	return s.GetDefaultCPUSet().Difference(p.reserved).Difference(p.topology.CPUDetails.CPUsExceptRtCores())
 }
 
 func (p *staticPolicy) ResetRtCores(cores map[int]bool) {
@@ -283,17 +283,17 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 		}
 
 		// Call Topology Manager to get the aligned socket affinity across all hint providers.
-		// If container's type is rt, assign isolcpus.
+		// If container's type is rt, assign rtcores.
 		// FIXME
 
 		var cpuset cpuset.CPUSet
 		var err error
 
 		if pod.ObjectMeta.Labels["edge"] == "rt" {
-			klog.InfoS("static policy: assign isolcpus for rt container", "pod", klog.KObj(pod), "containerName", container.Name)
-			cpuset, err = p.allocateIsolCPUs(s, numCPUs, p.cpusToReuse[string(pod.UID)])
+			klog.InfoS("static policy: assign realtime cores for rt container", "pod", klog.KObj(pod), "containerName", container.Name)
+			cpuset, err = p.allocateRtCores(s, numCPUs, p.cpusToReuse[string(pod.UID)])
 			if err != nil {
-				klog.ErrorS(err, "Unable to allocate IsolCPUs", "pod", klog.KObj(pod), "containerName", container.Name, "numCPUs", numCPUs)
+				klog.ErrorS(err, "Unable to allocate rtcores", "pod", klog.KObj(pod), "containerName", container.Name, "numCPUs", numCPUs)
 			} else {
 				s.SetCPUSet(string(pod.UID), container.Name, cpuset)
 				p.updateCPUsToReuse(pod, container, cpuset)
@@ -328,10 +328,10 @@ func (p *staticPolicy) RemoveContainer(s state.State, podUID string, containerNa
 	return nil
 }
 
-func (p *staticPolicy) allocateIsolCPUs(s state.State, numCPUs int, reusableCPUs cpuset.CPUSet) (cpuset.CPUSet, error) {
-	klog.InfoS("AllocateIsolCPUs", "numCPUs", numCPUs)
+func (p *staticPolicy) allocateRtCores(s state.State, numCPUs int, reusableCPUs cpuset.CPUSet) (cpuset.CPUSet, error) {
+	klog.InfoS("AllocateRtCores", "numCPUs", numCPUs)
 
-	allocatableCPUs := p.GetAllocatableCPUs(s).Difference(p.topology.CPUDetails.CPUsExceptIsolCPUs()).Union(reusableCPUs)
+	allocatableCPUs := p.GetAllocatableCPUs(s).Difference(p.topology.CPUDetails.CPUsExceptRtCores()).Union(reusableCPUs)
 
 	// Get any remaining CPUs from what's leftover after attempting to grab aligned ones.
 	result, err := takeByTopology(p.topology, allocatableCPUs, numCPUs)
@@ -349,7 +349,7 @@ func (p *staticPolicy) allocateIsolCPUs(s state.State, numCPUs int, reusableCPUs
 func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bitmask.BitMask, reusableCPUs cpuset.CPUSet) (cpuset.CPUSet, error) {
 	klog.InfoS("AllocateCPUs", "numCPUs", numCPUs, "socket", numaAffinity)
 
-	allocatableCPUs := p.GetAllocatableCPUs(s).Union(reusableCPUs).Difference(p.topology.CPUDetails.CPUsInIsolCPUs())
+	allocatableCPUs := p.GetAllocatableCPUs(s).Union(reusableCPUs).Difference(p.topology.CPUDetails.CPUsInRtCores())
 
 	// If there are aligned CPUs in numaAffinity, attempt to take those first.
 	result := cpuset.NewCPUSet()
