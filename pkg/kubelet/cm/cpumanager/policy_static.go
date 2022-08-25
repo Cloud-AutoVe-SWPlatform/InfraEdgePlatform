@@ -334,7 +334,7 @@ func (p *staticPolicy) allocateRtCores(s state.State, numCPUs int, reusableCPUs 
 	allocatableCPUs := p.GetAllocatableCPUs(s).Difference(p.topology.CPUDetails.CPUsExceptRtCores()).Union(reusableCPUs)
 
 	// Get any remaining CPUs from what's leftover after attempting to grab aligned ones.
-	result, err := takeByTopology(p.topology, allocatableCPUs, numCPUs)
+	result, err := p.takeByTopology(allocatableCPUs, numCPUs)
 	if err != nil {
 		return cpuset.NewCPUSet(), err
 	}
