@@ -19,6 +19,7 @@ package noderesources
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	v1 "k8s.io/api/core/v1"
@@ -91,6 +92,7 @@ func (f *Fit) ScoreExtensions() framework.ScoreExtensions {
 // preFilterState computed at PreFilter and used at Filter.
 type preFilterState struct {
 	framework.Resource
+	UseRtCores       bool
 }
 
 // Clone the prefilter state.
@@ -173,6 +175,12 @@ func computePodResourceRequest(pod *v1.Pod, enablePodOverhead bool) *preFilterSt
 	// If Overhead is being utilized, add to the total requests for the pod
 	if pod.Spec.Overhead != nil && enablePodOverhead {
 		result.Add(pod.Spec.Overhead)
+	}
+
+	if pod.ObjectMeta.Labels["edge"] == "rt" {
+		result.UseRtCores = true
+	} else {
+		result.UseRtCores = false
 	}
 
 	return result
@@ -274,7 +282,25 @@ func fitsRequest(podRequest *preFilterState, nodeInfo *framework.NodeInfo, ignor
 		return insufficientResources
 	}
 
-	if podRequest.MilliCPU > (nodeInfo.Allocatable.MilliCPU - nodeInfo.Requested.MilliCPU) {
+	if !podRequest.UseRtCores {
+		nodeAllocatableCPUs := nodeInfo.Allocatable.MilliCPU - nodeInfo.Requested.MilliCPU
+		rtcores, ok := nodeInfo.Node().Labels["rtcores"]
+		if ok {
+			numRtCores, _ := strconv.ParseInt(rtcores, 10, 64)
+			nodeAllocatableCPUs -= numRtCores * 1000
+		}
+
+		if podRequest.MilliCPU > nodeAllocatableCPUs {
+			insufficientResources = append(insufficientResources, InsufficientResource{
+				v1.ResourceCPU,
+				"Insufficient cpu",
+				podRequest.MilliCPU,
+				nodeInfo.Requested.MilliCPU,
+				nodeInfo.Allocatable.MilliCPU,
+			})
+		}
+
+	} else if podRequest.MilliCPU > (nodeInfo.Allocatable.MilliCPU - nodeInfo.Requested.MilliCPU) {
 		insufficientResources = append(insufficientResources, InsufficientResource{
 			v1.ResourceCPU,
 			"Insufficient cpu",
