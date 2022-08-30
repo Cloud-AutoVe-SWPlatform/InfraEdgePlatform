@@ -1574,13 +1574,48 @@ func LoadCoreMap(path string) map[int]bool {
 	return cores
 }
 
+func (kl *Kubelet) getLabelsOrZero(name string) int {
+	node, err := kl.GetNode()
+	if err != nil {
+		fmt.Errorf("error getting node %q: %v", kl.nodeName, err)
+		return 0
+	}
+
+	if label, ok := node.Labels[name]; ok {
+		num, _ := strconv.Atoi(label)
+		return num
+	}
+	return 0
+}
+
 func (kl *Kubelet) setRtCoresLabel(num int) {
 	node, err := kl.GetNode()
 	if err != nil {
 		fmt.Errorf("error getting node %q: %v", kl.nodeName, err)
 	} else {
 		originalNode := node.DeepCopy()
-		node.Labels["rtcores"] = strconv.Itoa(num)
+		diff := num - kl.getLabelsOrZero("maxrtcores")
+		if diff > 0 { // newer is larger than older
+			numRtCores := kl.getLabelsOrZero("rtcores")
+			numRtCores += diff
+			if numRtCores <= num {
+				node.Labels["rtcores"] = strconv.Itoa(numRtCores)
+			} else {
+				node.Labels["rtcores"] = strconv.Itoa(num)
+			}
+		} else if diff < 0 { // newer is lower than older
+			numRtCores := kl.getLabelsOrZero("rtcores")
+			numRtCores += diff
+			if numRtCores < 0 {
+				numRtCores = 0
+			}
+			if num < numRtCores {
+				node.Labels["rtcores"] = strconv.Itoa(num)
+			} else {
+				node.Labels["rtcores"] = strconv.Itoa(numRtCores)
+			}
+		}
+		node.Labels["maxrtcores"] = strconv.Itoa(num)
 		if _, _, err := nodeutil.PatchNodeStatus(kl.kubeClient.CoreV1(), types.NodeName(kl.nodeName), originalNode, node); err != nil {
 			klog.ErrorS(err, "Unable to reconcile node with API server,error updating node", "node", klog.KObj(node))
 		}
@@ -1593,10 +1628,15 @@ func (kl *Kubelet) updateRtCoresLabel(delta int) {
 		fmt.Errorf("error getting node %q: %v", kl.nodeName, err)
 	} else {
 		originalNode := node.DeepCopy()
-		num, _ := strconv.Atoi(node.Labels["rtcores"])
+		num := kl.getLabelsOrZero("rtcores")
 		num += delta
-		numstr := strconv.Itoa(num)
-		node.Labels["rtcores"] = numstr
+		maximum := kl.getLabelsOrZero("maxrtcores")
+		if num < 0 {
+			num = 0
+		} else if num > maximum {
+			num = maximum
+		}
+		node.Labels["rtcores"] = strconv.Itoa(num)
 		if _, _, err := nodeutil.PatchNodeStatus(kl.kubeClient.CoreV1(), types.NodeName(kl.nodeName), originalNode, node); err != nil {
 			klog.ErrorS(err, "Unable to reconcile node with API server,error updating node", "node", klog.KObj(node))
 		}
@@ -2442,13 +2482,15 @@ func (kl *Kubelet) HandlePodRemoves(pods []*v1.Pod) {
 			kl.handleMirrorPod(pod, start)
 			continue
 		}
+
+		if pod.ObjectMeta.Labels["edge"] == "rt" {
+			kl.updateRtCoresLabel(numRequestedCPUsInPod(pod))
+		}
+
 		// Deletion is allowed to fail because the periodic cleanup routine
 		// will trigger deletion again.
 		if err := kl.deletePod(pod); err != nil {
 			klog.V(2).InfoS("Failed to delete pod", "pod", klog.KObj(pod), "err", err)
-		}
-		if pod.ObjectMeta.Labels["edge"] == "rt" {
-			kl.updateRtCoresLabel(numRequestedCPUsInPod(pod))
 		}
 	}
 }

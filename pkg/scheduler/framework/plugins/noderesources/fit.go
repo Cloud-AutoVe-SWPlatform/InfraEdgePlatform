@@ -284,7 +284,7 @@ func fitsRequest(podRequest *preFilterState, nodeInfo *framework.NodeInfo, ignor
 
 	if !podRequest.UseRtCores {
 		nodeAllocatableCPUs := nodeInfo.Allocatable.MilliCPU - nodeInfo.Requested.MilliCPU
-		rtcores, ok := nodeInfo.Node().Labels["rtcores"]
+		rtcores, ok := nodeInfo.Node().Labels["maxrtcores"]
 		if ok {
 			numRtCores, _ := strconv.ParseInt(rtcores, 10, 64)
 			nodeAllocatableCPUs -= numRtCores * 1000
@@ -299,16 +299,27 @@ func fitsRequest(podRequest *preFilterState, nodeInfo *framework.NodeInfo, ignor
 				nodeInfo.Allocatable.MilliCPU,
 			})
 		}
+	} else {
+		nodeAllocatableCPUs := nodeInfo.Allocatable.MilliCPU - nodeInfo.Requested.MilliCPU
+		rtcores, ok := nodeInfo.Node().Labels["rtcores"]
+		if ok {
+			numRtCores, _ := strconv.ParseInt(rtcores, 10, 64)
+			if numRtCores * 1000 < nodeAllocatableCPUs {
+				nodeAllocatableCPUs = numRtCores * 1000
+			}
+		}
 
-	} else if podRequest.MilliCPU > (nodeInfo.Allocatable.MilliCPU - nodeInfo.Requested.MilliCPU) {
-		insufficientResources = append(insufficientResources, InsufficientResource{
-			v1.ResourceCPU,
-			"Insufficient cpu",
-			podRequest.MilliCPU,
-			nodeInfo.Requested.MilliCPU,
-			nodeInfo.Allocatable.MilliCPU,
-		})
+		if podRequest.MilliCPU > nodeAllocatableCPUs {
+			insufficientResources = append(insufficientResources, InsufficientResource{
+				v1.ResourceCPU,
+				"Insufficient cpu",
+				podRequest.MilliCPU,
+				nodeInfo.Requested.MilliCPU,
+				nodeInfo.Allocatable.MilliCPU,
+			})
+		}
 	}
+
 	if podRequest.Memory > (nodeInfo.Allocatable.Memory - nodeInfo.Requested.Memory) {
 		insufficientResources = append(insufficientResources, InsufficientResource{
 			v1.ResourceMemory,
