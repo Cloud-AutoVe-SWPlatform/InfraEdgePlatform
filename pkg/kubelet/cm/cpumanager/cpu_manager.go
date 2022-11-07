@@ -233,7 +233,13 @@ func (m *manager) AddContainer(p *v1.Pod, c *v1.Container, containerID string) e
 	m.Unlock()
 
 	if !cpus.IsEmpty() {
-		err := m.updateContainerCPUSet(containerID, cpus)
+		var err error
+		if p.ObjectMeta.Labels["mec"] == "lowlatency" {
+			err = m.updateContainerCPUSet(containerID, cpus, true)
+		} else {
+			err = m.updateContainerCPUSet(containerID, cpus, false)
+		}
+
 		if err != nil {
 			klog.Errorf("[cpumanager] AddContainer error: error updating CPUSet for container (pod: %s, container: %s, container id: %s, err: %v)", p.Name, c.Name, containerID, err)
 			m.Lock()
@@ -414,7 +420,7 @@ func (m *manager) reconcileState() (success []reconciledContainer, failure []rec
 			}
 
 			klog.V(4).Infof("[cpumanager] reconcileState: updating container (pod: %s, container: %s, container id: %s, cpuset: \"%v\")", pod.Name, container.Name, containerID, cset)
-			err = m.updateContainerCPUSet(containerID, cset)
+			err = m.updateContainerCPUSet(containerID, cset, false)
 			if err != nil {
 				klog.Errorf("[cpumanager] reconcileState: failed to update container (pod: %s, container: %s, container id: %s, cpuset: \"%v\", error: %v)", pod.Name, container.Name, containerID, cset, err)
 				failure = append(failure, reconciledContainer{pod.Name, container.Name, containerID})
@@ -451,14 +457,14 @@ func findContainerStatusByName(status *v1.PodStatus, name string) (*v1.Container
 	return nil, fmt.Errorf("unable to find status for container with name %v in pod status (it may not be running)", name)
 }
 
-func (m *manager) updateContainerCPUSet(containerID string, cpus cpuset.CPUSet) error {
+func (m *manager) updateContainerCPUSet(containerID string, cpus cpuset.CPUSet, isLowLatencyCont bool) error {
 	// TODO: Consider adding a `ResourceConfigForContainer` helper in
 	// helpers_linux.go similar to what exists for pods.
 	// It would be better to pass the full container resources here instead of
 	// this patch-like partial resources.
 	
 	var runtime int64
-	if m.state.GetDefaultCPUSet().String() != cpus.String() {
+	if isLowLatencyCont {
 		runtime = 50000
 	}
 

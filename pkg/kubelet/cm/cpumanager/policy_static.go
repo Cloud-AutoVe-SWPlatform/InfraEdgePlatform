@@ -91,7 +91,7 @@ var _ Policy = &staticPolicy{}
 // assignments for exclusively pinned guaranteed containers after the main
 // container process starts.
 func NewStaticPolicy(topology *topology.CPUTopology, numReservedCPUs int, reservedCPUs cpuset.CPUSet, affinity topologymanager.Store) (Policy, error) {
-	allCPUs := topology.CPUDetails.CPUs()
+	allCPUs := topology.CPUDetails.CPUsExceptIsolCPUs()
 	var reserved cpuset.CPUSet
 	if reservedCPUs.Size() > 0 {
 		reserved = reservedCPUs
@@ -101,6 +101,11 @@ func NewStaticPolicy(topology *topology.CPUTopology, numReservedCPUs int, reserv
 		//
 		// For example: Given a system with 8 CPUs available and HT enabled,
 		// if numReservedCPUs=2, then reserved={0,4}
+		var err error
+		reserved, err = takeByTopology(topology, allCPUs, numReservedCPUs)
+		if (err != nil) {
+			allCPUs = topology.CPUDetails.CPUs()
+		}
 		reserved, _ = takeByTopology(topology, allCPUs, numReservedCPUs)
 	}
 
@@ -212,7 +217,9 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 		klog.Infof("[cpumanager] static policy: Allocate (pod: %s, container: %s)", pod.Name, container.Name)
 		// container belongs in an exclusively allocated pool
 
-		if len(pod.GenerateName) > 0 {
+		if pod.ObjectMeta.Labels["mec"] != "lowlatency" ||
+		   pod.ObjectMeta.Labels["agent"] == "" {
+		} else if len(pod.GenerateName) > 0 {
 			containerID := string(pod.UID)
 			p.contPod[containerID] = pod.GenerateName
 			klog.Infof("[active/standby] new active standby  pod %s  %s come ", containerID, pod)
@@ -253,7 +260,13 @@ func (p *staticPolicy) Allocate(s state.State, pod *v1.Pod, container *v1.Contai
 		klog.Infof("[cpumanager] Pod %v, Container %v Topology Affinity is: %v", pod.UID, container.Name, hint)
 
 		// Allocate CPUs according to the NUMA affinity contained in the hint.
-		cpuset, err := p.allocateCPUs(s, numCPUs, hint.NUMANodeAffinity)
+		var cpuset cpuset.CPUSet
+		var err error
+		if pod.ObjectMeta.Labels["mec"] == "lowlatency" {
+			cpuset, err = p.allocateCPUs(s, numCPUs, hint.NUMANodeAffinity, true)
+		} else {
+			cpuset, err = p.allocateCPUs(s, numCPUs, hint.NUMANodeAffinity, false)
+		}
 		if err != nil {
 			klog.Errorf("[cpumanager] unable to allocate %d CPUs (pod: %s, container: %s, error: %v)", numCPUs, pod.Name, container.Name, err)
 			return err
@@ -320,20 +333,37 @@ func (p *staticPolicy) RemoveContainer(s state.State, podUID string, containerNa
 	return nil
 }
 
-func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bitmask.BitMask) (cpuset.CPUSet, error) {
+func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bitmask.BitMask, isLowLatencyCont bool) (cpuset.CPUSet, error) {
 	klog.Infof("[cpumanager] allocateCpus: (numCPUs: %d, socket: %v)", numCPUs, numaAffinity)
 
 	// If there are aligned CPUs in numaAffinity, attempt to take those first.
 	result := cpuset.NewCPUSet()
-	if numaAffinity != nil {
+	if isLowLatencyCont {
 		alignedCPUs := cpuset.NewCPUSet()
-		for _, numaNodeID := range numaAffinity.GetBits() {
-			alignedCPUs = alignedCPUs.Union(p.assignableCPUs(s).Intersection(p.topology.CPUDetails.CPUsInNUMANodes(numaNodeID)))
-		}
+		alignedCPUs = alignedCPUs.Union(p.assignableCPUs(s).Intersection(p.topology.CPUDetails.CPUsInIsolCPUs()))
 
 		numAlignedToAlloc := alignedCPUs.Size()
 		if numCPUs < numAlignedToAlloc {
 			numAlignedToAlloc = numCPUs
+		}
+
+		alignedCPUs, err := takeByTopology(p.topology, alignedCPUs, numAlignedToAlloc)
+
+		if err != nil {
+			return cpuset.NewCPUSet(), err
+		}
+		result = result.Union(alignedCPUs)
+	}
+
+	if numaAffinity != nil {
+		alignedCPUs := cpuset.NewCPUSet()
+		for _, numaNodeID := range numaAffinity.GetBits() {
+			alignedCPUs = alignedCPUs.Union(p.assignableCPUs(s).Intersection(p.topology.CPUDetails.CPUsInNUMANodes(numaNodeID)).Difference(result))
+		}
+
+		numAlignedToAlloc := alignedCPUs.Size()
+		if numCPUs - result.Size() < numAlignedToAlloc {
+			numAlignedToAlloc = numCPUs - result.Size()
 		}
 
 		alignedCPUs, err := takeByTopology(p.topology, alignedCPUs, numAlignedToAlloc)
