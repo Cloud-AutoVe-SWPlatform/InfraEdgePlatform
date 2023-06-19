@@ -360,9 +360,10 @@ func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bit
 
 	// If there are aligned CPUs in numaAffinity, attempt to take those first.
 	result := cpuset.NewCPUSet()
+	isolcpus := p.topology.CPUDetails.CPUsInIsolCPUs()
 	if isLowLatencyCont {
 		alignedCPUs := cpuset.NewCPUSet()
-		alignedCPUs = alignedCPUs.Union(p.assignableCPUs(s).Intersection(p.topology.CPUDetails.CPUsInIsolCPUs()))
+		alignedCPUs = alignedCPUs.Union(p.assignableCPUs(s).Intersection(isolcpus))
 
 		numAlignedToAlloc := alignedCPUs.Size()
 		if numCPUs < numAlignedToAlloc {
@@ -380,7 +381,7 @@ func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bit
 	if numaAffinity != nil {
 		alignedCPUs := cpuset.NewCPUSet()
 		for _, numaNodeID := range numaAffinity.GetBits() {
-			alignedCPUs = alignedCPUs.Union(assignableCPUs.Intersection(p.topology.CPUDetails.CPUsInNUMANodes(numaNodeID)).Difference(result))
+			alignedCPUs = alignedCPUs.Union(assignableCPUs.Intersection(p.topology.CPUDetails.CPUsInNUMANodes(numaNodeID)).Difference(isolcpus))
 		}
 
 		numAlignedToAlloc := alignedCPUs.Size()
@@ -397,7 +398,7 @@ func (p *staticPolicy) allocateCPUs(s state.State, numCPUs int, numaAffinity bit
 	}
 
 	// Get any remaining CPUs from what's leftover after attempting to grab aligned ones.
-	remainingCPUs, err := takeByTopology(p.topology, assignableCPUs.Difference(result), numCPUs-result.Size())
+	remainingCPUs, err := takeByTopology(p.topology, assignableCPUs.Difference(result).Difference(isolcpus), numCPUs-result.Size())
 	if err != nil {
 		return cpuset.NewCPUSet(), err
 	}
