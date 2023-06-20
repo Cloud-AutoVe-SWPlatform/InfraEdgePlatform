@@ -275,7 +275,7 @@ func InsertMonitor(object kruntime.Object, agent string) kruntime.Object {
 	template["spec"] = spec2
 	spec["template"] = template
 	dat["spec"] = spec
-	fmt.Printf("%s\n\n\n%s\n", dat, containers)
+	//fmt.Printf("%s\n\n\n%s\n", dat, containers)
 	
 	data, err = json.Marshal(dat)
 	json.Unmarshal(data, &object)

@@ -567,9 +567,6 @@ func (proxier *Proxier) OnEndpointsAdd(endpoints *v1.Endpoints) {
 // endpoints object is observed.
 func (proxier *Proxier) OnEndpointsUpdate(oldEndpoints, endpoints *v1.Endpoints) {
 	if proxier.endpointsChanges.Update(oldEndpoints, endpoints) && proxier.isInitialized() {
-		// 너무 빠른 동기화로 인해 서비스가 초기화 되기전에 패킷이 갈 수 있음
-		// 이를 방지하기 위한 딜레이. 5초로 되어있으나 더 늘어날 수 있음
-		time.Sleep(5 * time.Second)
 		proxier.Sync()
 	}
 }
